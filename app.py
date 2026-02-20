@@ -2,155 +2,230 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Nastavení vzhledu stránky
-st.set_page_config(page_title="Analýza Pickování", layout="wide")
+st.set_page_config(page_title="Chytrá Analýza Pickování", layout="wide")
 
 def main():
-    st.title("📦 Analýza Pickování & Fyzické pohyby")
-    st.write("Aplikace filtruje zakázky (1 materiál, na paletu), vypočítá průměry, TOP materiály a odhaduje **počet fyzických pohybů pickera**.")
+    st.title("📦 Chytrá Analýza Pickování & Zátěže")
+    st.write("Nahrajte **Pick report** i **MARM report**. Aplikace data spojí a díky znalosti balení a vah vypočítá maximálně přesné fyzické pohyby rukou.")
 
-    uploaded_file = st.file_uploader("Nahrajte exportovaný soubor (CSV nebo Excel)", type=['csv', 'xlsx'])
+    # Povoleno nahrání více souborů najednou
+    uploaded_files = st.file_uploader("Nahrajte soubory (Pick report a MARM report)", type=['csv', 'xlsx'], accept_multiple_files=True)
 
-    if uploaded_file is not None:
-        try:
-            with st.spinner('Načítám a zpracovávám data...'):
-                if uploaded_file.name.lower().endswith('.csv'):
-                    df = pd.read_csv(uploaded_file, dtype=str)
+    if uploaded_files and len(uploaded_files) > 0:
+        df_pick = None
+        df_marm = None
+
+        with st.spinner('Načítám a identifikuji soubory...'):
+            for file in uploaded_files:
+                # Rozlišení souborů podle názvu nebo obsahu by bylo složité, raději načteme hlavičku
+                if file.name.lower().endswith('.csv'):
+                    temp_df = pd.read_csv(file, dtype=str)
                 else:
-                    df = pd.read_excel(uploaded_file, dtype=str)
+                    temp_df = pd.read_excel(file, dtype=str)
                 
-                df = df.dropna(subset=['Delivery']).copy()
-                df = df.dropna(subset=['Material'])
-                df['Qty'] = pd.to_numeric(df['Act.qty (dest)'], errors='coerce').fillna(0)
+                # Pokud obsahuje 'Delivery', je to pick report
+                if 'Delivery' in temp_df.columns:
+                    df_pick = temp_df
+                # Pokud obsahuje 'Numerator' a 'Alternative Unit of Measure', je to MARM
+                elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns:
+                    df_marm = temp_df
 
-            # ==========================================
-            # POSTRANNÍ PANEL: NASTAVENÍ A FILTRY
-            # ==========================================
-            st.sidebar.header("⚙️ Nastavení výpočtu pohybů")
-            st.sidebar.write("Jak se počítají fyzické pohyby rukou:")
-            st.sidebar.markdown("- **Celá krabice** (`Removal of total SU`='X') = 1 pohyb")
-            st.sidebar.markdown("- **Jednotlivé kusy** = Počet kusů / Počet ks na jeden hmat")
+        if df_pick is None:
+            st.error("Nepodařilo se najít Pick report (chybí sloupec 'Delivery').")
+            return
             
-            # Posuvník: Kolik kusů zvládne picker vzít najednou do ruky?
-            kusy_na_hmat = st.sidebar.slider(
-                "Kolik kusů průměrně vezme picker do ruky (hmat)?", 
-                min_value=1, max_value=10, value=1, step=1
-            )
+        if df_marm is None:
+            st.warning("Nebyl nahrán MARM report. Výpočet pohybů bude pouze orientační bez krabic a vah.")
 
-            st.sidebar.divider()
+        # Očištění pick dat
+        df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
+        df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
+
+        # ==========================================
+        # ZPRACOVÁNÍ MARM DAT A NAPOJENÍ
+        # ==========================================
+        box_dict = {}
+        weight_dict = {}
+
+        if df_marm is not None:
+            # 1. Získání velikostí kartonů (hledáme alternativní jednotky jako AEK, KAR, PAK, VPE)
+            # Ignorujeme PAL (palety) a ST/PCE (základní jednotky)
+            df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
+            df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
             
-            # Filtr pro vyloučení materiálů
-            unique_materials = sorted(df['Material'].unique().tolist())
-            excluded_materials = st.sidebar.multiselect(
-                "Vyberte materiály k vyloučení ze všech výpočtů:",
-                options=unique_materials,
-                default=[]
-            )
+            # Pokud má materiál více balení, vezmeme to největší menší než paleta (pro jednoduchost max)
+            box_sizes = df_boxes.groupby('Material')['Numerator'].max().to_dict()
+            box_dict = {mat: int(size) for mat, size in box_sizes.items() if size > 1}
+
+            # 2. Získání váhy 1 kusu (z jednotky ST nebo PCE)
+            df_st = df_marm[df_marm['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])]
+            df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
             
-            if excluded_materials:
-                df = df[~df['Material'].isin(excluded_materials)]
+            # Převod na KG pro sjednocení
+            def to_kg(row):
+                w = row['Gross Weight']
+                u = str(row['Unit of Weight']).upper()
+                if u == 'G': return w / 1000.0
+                if u == 'MG': return w / 1000000.0
+                return w # Předpoklad KG
 
-            # ==========================================
-            # VÝPOČET FYZICKÝCH POHYBŮ PRO KAŽDÝ ŘÁDEK
-            # ==========================================
-            # Pokud vybírá celou jednotku ('X'), je to 1 pohyb. 
-            # Jinak vezmeme počet kusů, vydělíme počtem ks na hmat a zaokrouhlíme nahoru.
-            df['Pohyby_Rukou'] = np.where(
-                df['Removal of total SU'] == 'X', 
-                1, 
-                np.ceil(df['Qty'] / kusy_na_hmat)
-            )
+            df_st['Weight_KG'] = df_st.apply(to_kg, axis=1)
+            weight_dict = df_st.groupby('Material')['Weight_KG'].first().to_dict()
 
-            # ==========================================
-            # SEKCE 1: FILTRACE ZAKÁZEK (1 MATERIÁL)
-            # ==========================================
-            def is_valid_cert(certs):
-                valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
-                if len(valid_certs) == 0:
-                    return False
-                for c in valid_certs:
-                    if c.startswith('460'):
-                        return False
-                return True
+        # Přidání MARM dat do Pick reportu
+        df_pick['Box_Size'] = df_pick['Material'].map(box_dict).fillna(0)
+        df_pick['Piece_Weight_KG'] = df_pick['Material'].map(weight_dict).fillna(0)
 
-            grouped = df.groupby('Delivery').agg(
-                num_materials=('Material', 'nunique'),
-                material=('Material', 'first'),
-                certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
-                total_qty=('Qty', 'sum'),
-                num_positions=('Source Storage Bin', 'nunique'),
-                celkem_pohybu=('Pohyby_Rukou', 'sum') # Přidán součet pohybů
-            )
+        # ==========================================
+        # POSTRANNÍ PANEL: NASTAVENÍ A FILTRY
+        # ==========================================
+        st.sidebar.header("⚙️ Fyzické limity pickera")
+        
+        limit_vahy = st.sidebar.number_input(
+            "Od jaké váhy musí brát kusy po 1? (kg)", 
+            min_value=0.1, max_value=20.0, value=2.0, step=0.5,
+            help="Pokud 1 kus váží více než tato hodnota, nelze jich vzít více do jedné ruky."
+        )
 
-            filtered_orders = grouped[
-                (grouped['num_materials'] == 1) & 
-                (grouped['certs'].apply(is_valid_cert))
-            ]
+        kusy_na_hmat = st.sidebar.slider(
+            "Max kusů do ruky (pro lehké díly)", 
+            min_value=1, max_value=20, value=3, step=1,
+            help="Kolik drobných kusů dokáže picker chytit do hrsti najednou?"
+        )
 
-            total_filtered_orders = len(filtered_orders)
+        st.sidebar.divider()
+        unique_materials = sorted(df_pick['Material'].unique().tolist())
+        excluded_materials = st.sidebar.multiselect(
+            "Vyloučit materiály z výpočtů:",
+            options=unique_materials,
+            default=[]
+        )
+        
+        if excluded_materials:
+            df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
-            st.divider()
-            st.subheader("🎯 Analýza paletových zakázek (1 materiál)")
+        # ==========================================
+        # CHYTRÝ VÝPOČET POHYBŮ
+        # ==========================================
+        def spocitej_pohyby(row):
+            qty = row['Qty']
+            if row['Removal of total SU'] == 'X' or qty == 0:
+                return 1 # Celá jednotka / paleta = 1 pohyb
             
-            if total_filtered_orders > 0:
-                avg_qty = filtered_orders['total_qty'].mean()
-                avg_pos = filtered_orders['num_positions'].mean()
-                avg_pohybu = filtered_orders['celkem_pohybu'].mean() # Průměrný počet pohybů
+            pohyby = 0
+            zbytek = qty
+            box_size = row['Box_Size']
+            
+            # 1. Pokud materiál má definovaný karton a množství je větší než karton
+            if box_size > 1 and zbytek >= box_size:
+                plne_kartony = zbytek // box_size
+                pohyby += plne_kartony # Co plný karton, to 1 pohyb
+                zbytek = zbytek % box_size
                 
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Počet vyfiltrovaných zakázek", f"{total_filtered_orders:,}".replace(',', ' '))
-                col2.metric("Průměrný počet kusů na zakázku", f"{avg_qty:.1f}")
-                col3.metric("Průměrný počet pozic na zakázku", f"{avg_pos:.2f}")
-                col4.metric("Průměrně fyzických pohybů na zakázku", f"{avg_pohybu:.1f}") # Nová metrika
+            # 2. Zpracování zbylých volných kusů
+            if zbytek > 0:
+                vaha_kusu = row['Piece_Weight_KG']
+                # Pokud je to těžké, musí to brát po jednom (počet kusů = počet pohybů)
+                if vaha_kusu >= limit_vahy:
+                    pohyby += zbytek
+                else:
+                    # Jinak může vzít více ks do hrsti
+                    pohyby += np.ceil(zbytek / kusy_na_hmat)
+                    
+            return pohyby
 
-                with st.expander("Zobrazit detail vyfiltrovaných zakázek (včetně pohybů)"):
-                    display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'num_positions', 'certs']].copy()
-                    display_df.rename(columns={
-                        'material': 'Materiál',
-                        'total_qty': 'Celkem kusů',
-                        'celkem_pohybu': 'Odhad pohybů',
-                        'num_positions': 'Počet pozic',
-                        'certs': 'Certifikáty'
-                    }, inplace=True)
-                    st.dataframe(display_df, use_container_width=True)
-            else:
-                st.warning("Nenalezeny žádné zakázky odpovídající zadaným kritériím.")
+        df_pick['Pohyby_Rukou'] = df_pick.apply(spocitej_pohyby, axis=1)
+        # Váha celého picku pro zajímavost
+        df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-            # ==========================================
-            # SEKCE 2: TOP 50 NEJPICKOVANĚJŠÍCH MATERIÁLŮ
-            # ==========================================
-            st.divider()
-            st.subheader("🏆 TOP 50 nejnáročnějších materiálů")
-            st.write("*(Do této statistiky nejsou započítány materiály vyloučené v postranním panelu)*")
+        # ==========================================
+        # SEKCE 1: FILTRACE ZAKÁZEK (1 MATERIÁL)
+        # ==========================================
+        def is_valid_cert(certs):
+            valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
+            if len(valid_certs) == 0: return False
+            for c in valid_certs:
+                if c.startswith('460'): return False
+            return True
+
+        grouped = df_pick.groupby('Delivery').agg(
+            num_materials=('Material', 'nunique'),
+            material=('Material', 'first'),
+            certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
+            total_qty=('Qty', 'sum'),
+            num_positions=('Source Storage Bin', 'nunique'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'),
+            vaha_zakazky=('Celkova_Vaha_KG', 'sum')
+        )
+
+        filtered_orders = grouped[
+            (grouped['num_materials'] == 1) & 
+            (grouped['certs'].apply(is_valid_cert))
+        ]
+
+        total_filtered_orders = len(filtered_orders)
+
+        st.divider()
+        st.subheader("🎯 Analýza paletových zakázek (1 materiál)")
+        
+        if total_filtered_orders > 0:
+            avg_qty = filtered_orders['total_qty'].mean()
+            avg_pos = filtered_orders['num_positions'].mean()
+            avg_pohybu = filtered_orders['celkem_pohybu'].mean()
+            avg_vaha = filtered_orders['vaha_zakazky'].mean()
             
-            top_materials = df.groupby('Material').agg(
-                pocet_picku=('Material', 'count'),          # kolikrát se pro materiál šlo (počet řádků)
-                celkove_mnozstvi=('Qty', 'sum'),            # celkem kusů
-                celkem_pohybu=('Pohyby_Rukou', 'sum')       # celkem odhadovaných pohybů rukou
-            ).reset_index()
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Počet vyfiltrovaných zakázek", f"{total_filtered_orders:,}".replace(',', ' '))
+            col2.metric("Průměrně kusů / zakázka", f"{avg_qty:.1f} ks")
+            col3.metric("Průměrně pozic / zakázka", f"{avg_pos:.2f}")
+            col4.metric("Průměrně pohybů / zakázka", f"{avg_pohybu:.1f} hmatů")
 
-            # Změna: Teď tabulku řadíme podle toho, kolikrát musel picker pro daný materiál něco udělat rukama
-            top_50 = top_materials.sort_values(by='celkem_pohybu', ascending=False).head(50)
+            with st.expander("Zobrazit detail vyfiltrovaných zakázek"):
+                display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'vaha_zakazky', 'certs']].copy()
+                display_df.rename(columns={
+                    'material': 'Materiál',
+                    'total_qty': 'Celkem kusů',
+                    'celkem_pohybu': 'Pohyby rukou',
+                    'vaha_zakazky': 'Odhad váhy (kg)',
+                    'certs': 'Certifikáty'
+                }, inplace=True)
+                st.dataframe(display_df, use_container_width=True)
+        else:
+            st.warning("Nenalezeny žádné zakázky odpovídající zadaným kritériím.")
 
-            top_50.rename(columns={
-                'Material': 'Materiál',
-                'pocet_picku': 'Počet příjezdů (řádků)',
-                'celkem_pohybu': 'Fyzické pohyby rukou',
-                'celkove_mnozstvi': 'Celkové množství (ks)'
-            }, inplace=True)
+        # ==========================================
+        # SEKCE 2: TOP 50 NEJNÁROČNĚJŠÍCH MATERIÁLŮ
+        # ==========================================
+        st.divider()
+        st.subheader("🏆 TOP 50 fyzicky nejnáročnějších materiálů (ze všech dat)")
+        
+        top_materials = df_pick.groupby('Material').agg(
+            pocet_picku=('Material', 'count'),
+            celkove_mnozstvi=('Qty', 'sum'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'),
+            celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum')
+        ).reset_index()
 
-            col_top1, col_top2 = st.columns([1, 1])
+        top_50 = top_materials.sort_values(by='celkem_pohybu', ascending=False).head(50)
 
-            with col_top1:
-                st.write("**Tabulka TOP 50 (seřazeno dle fyzické náročnosti)**")
-                st.dataframe(top_50, use_container_width=True, hide_index=True)
+        top_50.rename(columns={
+            'Material': 'Materiál',
+            'pocet_picku': 'Příjezdy na pozici (řádky)',
+            'celkem_pohybu': 'Fyzické pohyby rukou',
+            'celkove_mnozstvi': 'Kusů celkem',
+            'celkova_natacena_vaha': 'Zvednuto (kg)'
+        }, inplace=True)
 
-            with col_top2:
-                st.write("**Graf fyzické náročnosti pickování**")
-                st.bar_chart(top_50.set_index('Materiál')['Fyzické pohyby rukou'])
+        col_top1, col_top2 = st.columns([1.5, 1])
 
-        except Exception as e:
-            st.error(f"Došlo k chybě při zpracování souboru. Detail: {e}")
+        with col_top1:
+            st.dataframe(top_50.style.format({
+                "Zvednuto (kg)": "{:.1f}",
+                "Fyzické pohyby rukou": "{:.0f}"
+            }), use_container_width=True, hide_index=True)
+
+        with col_top2:
+            st.bar_chart(top_50.set_index('Materiál')['Fyzické pohyby rukou'])
 
 if __name__ == "__main__":
     main()
