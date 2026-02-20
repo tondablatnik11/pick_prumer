@@ -34,7 +34,7 @@ TEXTS = {
         'exclude_label': "Vyloučit materiály z výpočtů:",
         'sec_methodology': "📖 Jak a proč se počítají pohyby?",
         'methodology_text': """
-### ⚙️ Krok za krokem: Jak funguje náš algoritmus?
+### ⚙️ Krok za krokem: Jak funguje algoritmus?
 Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů.
 2. **Vyhodnotí váhu a rozměr zbytku:** U zbylých 20 ks zkontroluje limity zadané v levém panelu (např. >2 kg nebo >15 cm). Pokud kus limit překračuje, musí se brát po jednom kusu = **20 pohybů**.
