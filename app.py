@@ -34,18 +34,15 @@ TEXTS = {
         'exclude_label': "Vyloučit materiály z výpočtů:",
         'sec_methodology': "📖 Jak a proč se počítají pohyby?",
         'methodology_text': """
-### ❓ Proč už nemůžeme měřit jen kusy?
-Představte si dva pracovníky ve skladu:
-* **Picker A:** Má za úkol vychystat 5 000 ks drobných gumiček. Z regálu vezme jednu originální krabici (4 800 ks) a 200 ks dobere volně po hrstech (např. po 5 kusech). Vykonal zhruba **41 fyzických pohybů**, ale v systému svítí výkon 5 000 ks.
-* **Picker B:** Má vychystat 100 ks brzdových kotoučů (každý váží 3 kg). Musí je vzít a přesunout po jednom. Vykonal **100 těžkých fyzických pohybů**, ale systém ukazuje výkon jen 100 ks.
-*Klasický report by nespravedlivě potrestal Pickera B, ačkoliv odvedl mnohem těžší práci. Náš algoritmus toto zkreslení narovnává.*
-
 ### ⚙️ Krok za krokem: Jak funguje náš algoritmus?
 Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů.
 2. **Vyhodnotí váhu a rozměr zbytku:** U zbylých 20 ks zkontroluje limity zadané v levém panelu (např. >2 kg nebo >15 cm). Pokud kus limit překračuje, musí se brát po jednom kusu = **20 pohybů**.
 3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
-**Výsledkem je naprosto přesný odhad skutečné fyzické zátěže!**
+
+* **Picker A:** Má za úkol vychystat 5 000 ks drobných gumiček. Z regálu vezme jednu originální krabici (4 800 ks) a 200 ks dobere volně po hrstech (např. po 5 kusech). Vykonal zhruba **41 fyzických pohybů**, ale v systému svítí výkon 5 000 ks.
+* **Picker B:** Má vychystat 100 ks brzdových kotoučů (každý váží 3 kg). Musí je vzít a přesunout po jednom. Vykonal **100 těžkých fyzických pohybů**, ale systém ukazuje výkon jen 100 ks.
+*Klasický report by nespravedlivě potrestal Pickera B, ačkoliv odvedl mnohem těžší práci. Algoritmus toto zkreslení narovnává.*
         """,
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
         'm_orders': "Počet zakázek",
