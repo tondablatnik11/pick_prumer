@@ -42,7 +42,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
         """,
         'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat)",
-        'ratio_desc': "Tento přehled ukazuje, jaká část fyzických pohybů byla vypočítána na 100 % přesně dle balení (MARM a ruční zadání) a jaká část musela být odhadnuta logikou volných kusů (hmotnost, rozměry, hrst).",
+        'ratio_desc': "Tento přehled ukazuje, jaká část fyzických pohybů byla vypočítána na 100 % přesně dle balení (MARM a ruční zadání) a jaká část musela být odhadnuta logikou volných kusů (hmotnost, rozměry, hrst). Nízké procento 'přesných krabic' neznamená chybu – obvykle je způsobeno několika artikly s obřím objemem kusů (např. 100 000), které nemají krabici zadanou v MARMu a padají tak do odhadu.",
         'ratio_master': "Přesně dle balení (Krabice)",
         'ratio_loose': "Dopočet volných kusů (Váha/Rozměr)",
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
@@ -93,7 +93,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 3. **Small Handfuls:** If light/small, we assume grabbing (e.g. 3 pcs/grab) = **7 movements**.
         """,
         'sec_ratio': "🎯 Calculation Source (Data Reliability)",
-        'ratio_desc': "Shows the proportion of movements calculated 100% exactly from Master Data (Cartons) vs. those estimated by loose pieces logic (Weight/Dimensions/Handful).",
+        'ratio_desc': "Shows the proportion of movements calculated 100% exactly from Master Data (Cartons) vs. those estimated by loose pieces logic.",
         'ratio_master': "Exact from Master Data (Boxes)",
         'ratio_loose': "Estimated Loose Pieces (Weight/Dim)",
         'sec1_title': "🎯 Single-Material Pallet Orders",
@@ -185,7 +185,11 @@ def main():
         if df_marm is not None:
             df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
             df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
-            box_dict = {m: int(s) for m, s in df_boxes.groupby('Material')['Numerator'].max().to_dict().items() if s > 1}
+            
+            # NOVÁ LOGIKA: Uložíme všechny velikosti krabic pro daný materiál
+            def get_sorted_boxes(group):
+                return sorted([int(x) for x in group if x > 1], reverse=True)
+            box_dict = df_boxes.groupby('Material')['Numerator'].apply(get_sorted_boxes).to_dict()
 
             df_st = df_marm[df_marm['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])].copy()
             df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
@@ -206,7 +210,7 @@ def main():
             df_st['Max_Dim_CM'] = df_st[['L', 'W', 'H']].max(axis=1) 
             dim_dict = df_st.groupby('Material')['Max_Dim_CM'].first().to_dict()
 
-        df_pick['Box_Sizes_List'] = df_pick['Material'].apply(lambda m: manual_boxes.get(m, [box_dict.get(m, 0)] if box_dict.get(m, 0) > 1 else []))
+        df_pick['Box_Sizes_List'] = df_pick['Material'].apply(lambda m: manual_boxes.get(m, box_dict.get(m, [])))
         df_pick['Piece_Weight_KG'] = df_pick['Material'].map(weight_dict).fillna(0)
         df_pick['Piece_Max_Dim_CM'] = df_pick['Material'].map(dim_dict).fillna(0)
 
@@ -295,7 +299,6 @@ def main():
         }, inplace=True)
 
         top_100 = all_materials_agg.sort_values(by=t('col_mov'), ascending=False).head(100)
-        # Upraveno pro zobrazení všech důležitých sloupců
         top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose'), t('col_mov')]]
 
         def is_valid_cert(certs):
@@ -342,7 +345,7 @@ def main():
                 "Téma": ["O reportu", "Poměr spolehlivosti dat", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
                 "Popis": [
                     "Tento report odstraňuje iluzi 'naskenovaných kusů' a odhaduje skutečný počet fyzických pohybů pickera.",
-                    f"Výpočty jsou z {pct_box:.1f} % přesné dle MARMu a z {pct_loose:.1f} % dopočítané z vah.",
+                    f"Výpočty jsou z {pct_box:.1f} % přesné dle krabic a z {pct_loose:.1f} % po volných kusech.",
                     "Odpočet celých kartonů (balení definované v MARM nebo ručním souboru). 1 karton = 1 pohyb.",
                     "Zbytek kusů, které jsou příliš těžké nebo velké, se bere po jednom. 1 kus = 1 pohyb.",
                     "Zbylé lehké a drobné kusy se berou do hrsti (dle nastavení).",
