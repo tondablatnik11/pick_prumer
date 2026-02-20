@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
 
 # 1. Nastavení stránky na profesionální vzhled
 st.set_page_config(page_title="Analýza Skladové Zátěže | Warehouse Analysis", page_icon="📈", layout="wide")
@@ -53,7 +54,8 @@ TEXTS = {
         'sec2_title': "🏆 TOP 100 fyzicky nejnáročnějších materiálů (ze všech volných picků)",
         'col_lines': "Příjezdy (řádky)",
         'col_box': "Ks v balení",
-        'val_loose': "Volné"
+        'val_loose': "Volné",
+        'btn_download': "📥 Stáhnout tabulku jako Excel (.xlsx)"
     },
     'en': {
         'switch_lang': "🇨🇿 Přepnout do češtiny",
@@ -97,7 +99,8 @@ TEXTS = {
         'sec2_title': "🏆 TOP 100 Physically Most Demanding Materials (from all loose picks)",
         'col_lines': "Lines (Visits)",
         'col_box': "Pcs in Box",
-        'val_loose': "Loose"
+        'val_loose': "Loose",
+        'btn_download': "📥 Download table as Excel (.xlsx)"
     }
 }
 
@@ -105,7 +108,6 @@ def t(key):
     return TEXTS[st.session_state.lang][key]
 
 def main():
-    # Tlačítko pro změnu jazyka vpravo nahoře
     col_spacer, col_lang = st.columns([8, 1])
     with col_lang:
         if st.button(t('switch_lang')):
@@ -172,7 +174,6 @@ def main():
             # 2. Kusy (Váhy a Rozměry)
             df_st = df_marm[df_marm['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])].copy()
             
-            # Převod váhy na KG
             df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
             def to_kg(row):
                 w = row['Gross Weight']
@@ -183,21 +184,20 @@ def main():
             df_st['Weight_KG'] = df_st.apply(to_kg, axis=1)
             weight_dict = df_st.groupby('Material')['Weight_KG'].first().to_dict()
 
-            # Převod rozměrů na CM
             def to_cm(val, unit):
                 try:
                     v = float(val)
                     u = str(unit).upper().strip()
                     if u == 'MM': return v / 10.0
                     if u == 'M': return v * 100.0
-                    return v # předpoklad CM
+                    return v 
                 except:
                     return 0.0
 
             df_st['L'] = df_st.apply(lambda r: to_cm(r['Length'], r['Unit of Dimension']), axis=1)
             df_st['W'] = df_st.apply(lambda r: to_cm(r['Width'], r['Unit of Dimension']), axis=1)
             df_st['H'] = df_st.apply(lambda r: to_cm(r['Height'], r['Unit of Dimension']), axis=1)
-            df_st['Max_Dim_CM'] = df_st[['L', 'W', 'H']].max(axis=1) # Najde nejdelší stranu
+            df_st['Max_Dim_CM'] = df_st[['L', 'W', 'H']].max(axis=1) 
             dim_dict = df_st.groupby('Material')['Max_Dim_CM'].first().to_dict()
 
         df_pick['Box_Size'] = df_pick['Material'].map(box_dict).fillna(0)
@@ -245,21 +245,19 @@ def main():
             zbytek = qty
             box_size = row['Box_Size']
             
-            # Kartony
             if box_size > 1 and zbytek >= box_size:
                 plne_kartony = zbytek // box_size
                 pohyby += plne_kartony
                 zbytek = zbytek % box_size
                 
-            # Volné kusy (kontrola váhy NEBO nejdelší strany)
             if zbytek > 0:
                 vaha_kusu = row['Piece_Weight_KG']
                 nejdelsi_strana = row['Piece_Max_Dim_CM']
                 
                 if vaha_kusu >= limit_vahy or nejdelsi_strana >= limit_rozmeru:
-                    pohyby += zbytek # Musí brát po 1 ks
+                    pohyby += zbytek
                 else:
-                    pohyby += np.ceil(zbytek / kusy_na_hmat) # Může vzít víc ks do hrsti
+                    pohyby += np.ceil(zbytek / kusy_na_hmat)
                     
             return pohyby
 
@@ -349,6 +347,20 @@ def main():
                 'celkova_natacena_vaha': t('col_wgt')
             }, inplace=True)
 
+            # Export do Excelu (.xlsx) pomocí bufferu v paměti
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materials')
+            
+            # Zobrazení tlačítka pro stažení originálního .xlsx
+            st.download_button(
+                label=t('btn_download'),
+                data=buffer.getvalue(),
+                file_name="TOP_100_materialy.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # Zobrazení na obrazovce
             col_top1, col_top2 = st.columns([1.5, 1])
 
             with col_top1:
