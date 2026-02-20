@@ -33,7 +33,7 @@ TEXTS = {
         'hmat_label': "Max ks lehkých dílů do hrsti",
         'hmat_help': "Kolik malých kusů vezme picker průměrně do jedné ruky / jedním hmatem?",
         'exclude_label': "Vyloučit materiály z výpočtů:",
-        'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
+        'sec_methodology': "📖 Jak a proč se počítají pohyby?",
         'methodology_text': """
 ### ⚙️ Krok za krokem: Jak funguje algoritmus?
 Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
