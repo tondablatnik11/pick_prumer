@@ -6,9 +6,8 @@ st.set_page_config(page_title="Chytrá Analýza Pickování", layout="wide")
 
 def main():
     st.title("📦 Chytrá Analýza Pickování & Zátěže")
-    st.write("Nahrajte **Pick report** i **MARM report**. Aplikace data spojí a díky znalosti balení a vah vypočítá maximálně přesné fyzické pohyby rukou.")
+    st.write("Nahrajte **Pick report** i **MARM report**. Aplikace data spojí a vypočítá maximálně přesné fyzické pohyby rukou při pickování i s ohledem na nutnost přepočítávání kusů.")
 
-    # Povoleno nahrání více souborů najednou
     uploaded_files = st.file_uploader("Nahrajte soubory (Pick report a MARM report)", type=['csv', 'xlsx'], accept_multiple_files=True)
 
     if uploaded_files and len(uploaded_files) > 0:
@@ -17,16 +16,13 @@ def main():
 
         with st.spinner('Načítám a identifikuji soubory...'):
             for file in uploaded_files:
-                # Rozlišení souborů podle názvu nebo obsahu by bylo složité, raději načteme hlavičku
                 if file.name.lower().endswith('.csv'):
                     temp_df = pd.read_csv(file, dtype=str)
                 else:
                     temp_df = pd.read_excel(file, dtype=str)
                 
-                # Pokud obsahuje 'Delivery', je to pick report
                 if 'Delivery' in temp_df.columns:
                     df_pick = temp_df
-                # Pokud obsahuje 'Numerator' a 'Alternative Unit of Measure', je to MARM
                 elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns:
                     df_marm = temp_df
 
@@ -37,7 +33,6 @@ def main():
         if df_marm is None:
             st.warning("Nebyl nahrán MARM report. Výpočet pohybů bude pouze orientační bez krabic a vah.")
 
-        # Očištění pick dat
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
 
@@ -48,31 +43,25 @@ def main():
         weight_dict = {}
 
         if df_marm is not None:
-            # 1. Získání velikostí kartonů (hledáme alternativní jednotky jako AEK, KAR, PAK, VPE)
-            # Ignorujeme PAL (palety) a ST/PCE (základní jednotky)
             df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
             df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
             
-            # Pokud má materiál více balení, vezmeme to největší menší než paleta (pro jednoduchost max)
             box_sizes = df_boxes.groupby('Material')['Numerator'].max().to_dict()
             box_dict = {mat: int(size) for mat, size in box_sizes.items() if size > 1}
 
-            # 2. Získání váhy 1 kusu (z jednotky ST nebo PCE)
             df_st = df_marm[df_marm['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])]
             df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
             
-            # Převod na KG pro sjednocení
             def to_kg(row):
                 w = row['Gross Weight']
                 u = str(row['Unit of Weight']).upper()
                 if u == 'G': return w / 1000.0
                 if u == 'MG': return w / 1000000.0
-                return w # Předpoklad KG
+                return w
 
             df_st['Weight_KG'] = df_st.apply(to_kg, axis=1)
             weight_dict = df_st.groupby('Material')['Weight_KG'].first().to_dict()
 
-        # Přidání MARM dat do Pick reportu
         df_pick['Box_Size'] = df_pick['Material'].map(box_dict).fillna(0)
         df_pick['Piece_Weight_KG'] = df_pick['Material'].map(weight_dict).fillna(0)
 
@@ -82,7 +71,7 @@ def main():
         st.sidebar.header("⚙️ Fyzické limity pickera")
         
         limit_vahy = st.sidebar.number_input(
-            "Od jaké váhy musí brát kusy po 1? (kg)", 
+            "Od jaké váhy musí brát/počítat kusy po 1? (kg)", 
             min_value=0.1, max_value=20.0, value=2.0, step=0.5,
             help="Pokud 1 kus váží více než tato hodnota, nelze jich vzít více do jedné ruky."
         )
@@ -90,7 +79,7 @@ def main():
         kusy_na_hmat = st.sidebar.slider(
             "Max kusů do ruky (pro lehké díly)", 
             min_value=1, max_value=20, value=3, step=1,
-            help="Kolik drobných kusů dokáže picker chytit do hrsti najednou?"
+            help="Kolik drobných kusů dokáže picker chytit do hrsti nebo rychle odpočítat najednou?"
         )
 
         st.sidebar.divider()
@@ -105,37 +94,36 @@ def main():
             df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
         # ==========================================
-        # CHYTRÝ VÝPOČET POHYBŮ
+        # CHYTRÝ VÝPOČET POHYBŮ (bez výjimky pro 'X')
         # ==========================================
         def spocitej_pohyby(row):
             qty = row['Qty']
-            if row['Removal of total SU'] == 'X' or qty == 0:
-                return 1 # Celá jednotka / paleta = 1 pohyb
+            if qty <= 0:
+                return 0
             
             pohyby = 0
             zbytek = qty
             box_size = row['Box_Size']
             
-            # 1. Pokud materiál má definovaný karton a množství je větší než karton
+            # 1. Zpracování po celých kartonech
             if box_size > 1 and zbytek >= box_size:
                 plne_kartony = zbytek // box_size
-                pohyby += plne_kartony # Co plný karton, to 1 pohyb
+                pohyby += plne_kartony
                 zbytek = zbytek % box_size
                 
             # 2. Zpracování zbylých volných kusů
             if zbytek > 0:
                 vaha_kusu = row['Piece_Weight_KG']
-                # Pokud je to těžké, musí to brát po jednom (počet kusů = počet pohybů)
+                # Těžké kusy po jednom
                 if vaha_kusu >= limit_vahy:
                     pohyby += zbytek
+                # Lehké kusy do hrsti / odpočítání
                 else:
-                    # Jinak může vzít více ks do hrsti
                     pohyby += np.ceil(zbytek / kusy_na_hmat)
                     
             return pohyby
 
         df_pick['Pohyby_Rukou'] = df_pick.apply(spocitej_pohyby, axis=1)
-        # Váha celého picku pro zajímavost
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
         # ==========================================
