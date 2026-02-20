@@ -33,7 +33,7 @@ TEXTS = {
         'hmat_label': "Max ks lehkých dílů do hrsti",
         'hmat_help': "Kolik malých kusů vezme picker průměrně do jedné ruky / jedním hmatem?",
         'exclude_label': "Vyloučit materiály z výpočtů:",
-        'sec_methodology': "📖 Jak a proč se počítají pohyby?",
+        'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
         'methodology_text': """
 ### ⚙️ Krok za krokem: Jak funguje algoritmus?
 Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
@@ -42,9 +42,10 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
         """,
         'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat)",
-        'ratio_desc': "Tento přehled ukazuje, jaká část fyzických pohybů byla vypočítána na 100 % přesně dle balení (MARM a ruční zadání) a jaká část musela být odhadnuta logikou volných kusů (hmotnost, rozměry, hrst). Nízké procento 'přesných krabic' neznamená chybu – obvykle je způsobeno několika artikly s obřím objemem kusů (např. 100 000), které nemají krabici zadanou v MARMu a padají tak do odhadu.",
-        'ratio_master': "Přesně dle balení (Krabice)",
-        'ratio_loose': "Dopočet volných kusů (Váha/Rozměr)",
+        'ratio_desc': "Tento přehled ukazuje, jak kvalitní data jsme měli pro výpočet. Pohyby se dělí na přesně identifikované krabice, na přirozené zbytky/ověřené volné kusy a na hmaty, které jsme museli kompletně dopočítat jen přes váhu/rozměr, protože v MARMu chyběla krabice.",
+        'ratio_master': "Přesně (Krabice)",
+        'ratio_loose_ok': "Přesně (Ověřené volné / Zbytky)",
+        'ratio_loose_miss': "Odhad (Chybí data o balení)",
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
         'm_orders': "Počet zakázek",
         'm_qty': "Prům. kusů / zakázku",
@@ -55,7 +56,8 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_qty': "Kusů celkem",
         'col_mov': "Celkem pohybů",
         'col_mov_box': "Pohyby (Krabice)",
-        'col_mov_loose': "Pohyby (Volné)",
+        'col_mov_loose_ok': "Pohyby (Ověřené volné)",
+        'col_mov_loose_miss': "Pohyby (Chybí balení)",
         'col_wgt': "Hmotnost (kg)",
         'col_max_dim': "Rozměr (cm)",
         'col_cert': "Certifikát",
@@ -63,7 +65,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_lines': "Řádky (Návštěvy)",
         'col_box': "Hierarchie balení",
         'val_loose': "Volné kusy",
-        'btn_download': "📥 Stáhnout kompletní report (Excel Workbook s grafem a detaily)",
+        'btn_download': "📥 Stáhnout kompletní report (Excel Workbook)",
         'no_orders': "Nenalezeny žádné zakázky pro zobrazení.",
     },
     'en': {
@@ -93,9 +95,10 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 3. **Small Handfuls:** If light/small, we assume grabbing (e.g. 3 pcs/grab) = **7 movements**.
         """,
         'sec_ratio': "🎯 Calculation Source (Data Reliability)",
-        'ratio_desc': "Shows the proportion of movements calculated 100% exactly from Master Data (Cartons) vs. those estimated by loose pieces logic.",
-        'ratio_master': "Exact from Master Data (Boxes)",
-        'ratio_loose': "Estimated Loose Pieces (Weight/Dim)",
+        'ratio_desc': "Shows how movements were calculated: exact full boxes, exact natural loose remainders/verified loose, and loose pieces estimated purely by weight because carton data was missing in SAP.",
+        'ratio_master': "Exact (Boxes)",
+        'ratio_loose_ok': "Exact (Verified Loose / Remainders)",
+        'ratio_loose_miss': "Estimated (Missing Box Data)",
         'sec1_title': "🎯 Single-Material Pallet Orders",
         'm_orders': "Orders",
         'm_qty': "Avg Pcs / Order",
@@ -105,8 +108,9 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_mat': "Material",
         'col_qty': "Total Pieces",
         'col_mov': "Total Movements",
-        'col_mov_box': "Movements (Boxes)",
-        'col_mov_loose': "Movements (Loose)",
+        'col_mov_box': "Moves (Boxes)",
+        'col_mov_loose_ok': "Moves (Verified Loose)",
+        'col_mov_loose_miss': "Moves (Missing Box)",
         'col_wgt': "Weight (kg)",
         'col_max_dim': "Max Dim (cm)",
         'col_cert': "Certificate",
@@ -114,7 +118,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_lines': "Lines (Visits)",
         'col_box': "Packaging Hierarchy",
         'val_loose': "Loose",
-        'btn_download': "📥 Download Comprehensive Report (Excel Workbook with Charts)",
+        'btn_download': "📥 Download Comprehensive Report (Excel Workbook)",
         'no_orders': "No orders found.",
     }
 }
@@ -186,7 +190,6 @@ def main():
             df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
             df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
             
-            # NOVÁ LOGIKA: Uložíme všechny velikosti krabic pro daný materiál
             def get_sorted_boxes(group):
                 return sorted([int(x) for x in group if x > 1], reverse=True)
             box_dict = df_boxes.groupby('Material')['Numerator'].apply(get_sorted_boxes).to_dict()
@@ -225,31 +228,43 @@ def main():
         if excluded_materials: df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
         # ==========================================
-        # VÝPOČET POHYBŮ S ROZPADEM NA ZDROJ
+        # VÝPOČET POHYBŮ S ROZPADEM NA 3 ZDROJE
         # ==========================================
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
-            if qty <= 0: return 0, 0, 0
+            if qty <= 0: return 0, 0, 0, 0
             
             pohyby_box = 0
-            pohyby_loose = 0
+            pohyby_loose_ok = 0
+            pohyby_loose_miss = 0
             zbytek = qty
             boxes = row['Box_Sizes_List']
             
+            # 1. Zpracování krabic
             for box_size in boxes:
                 if box_size > 1 and zbytek >= box_size:
                     pohyby_box += zbytek // box_size
                     zbytek = zbytek % box_size
                 
+            # 2. Zpracování zbytku / volných kusů
             if zbytek > 0:
+                # Spočítáme pohyby pro volné kusy
                 if row['Piece_Weight_KG'] >= limit_vahy or row['Piece_Max_Dim_CM'] >= limit_rozmeru:
-                    pohyby_loose += zbytek
+                    pohyby = zbytek
                 else:
-                    pohyby_loose += np.ceil(zbytek / kusy_na_hmat)
+                    pohyby = np.ceil(zbytek / kusy_na_hmat)
+                
+                # Rozhodnutí, kam pohyby zařadit:
+                if len(boxes) == 0:
+                    # Žádná data o krabici v MARM ani ručně -> "Chybí data"
+                    pohyby_loose_miss += pohyby
+                else:
+                    # Měli jsme krabici a tohle je zbytek, NEBO ručně zadáno "po kusech" (kde je len(boxes) > 0, protože jsme nastavili [1])
+                    pohyby_loose_ok += pohyby
                     
-            return pohyby_box + pohyby_loose, pohyby_box, pohyby_loose
+            return pohyby_box + pohyby_loose_ok + pohyby_loose_miss, pohyby_box, pohyby_loose_ok, pohyby_loose_miss
 
-        df_pick[['Pohyby_Rukou', 'Pohyby_Box', 'Pohyby_Loose']] = df_pick.apply(spocitej_pohyby_detail, axis=1, result_type='expand')
+        df_pick[['Pohyby_Rukou', 'Pohyby_Box', 'Pohyby_Loose_OK', 'Pohyby_Loose_Miss']] = df_pick.apply(spocitej_pohyby_detail, axis=1, result_type='expand')
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
         # ==========================================
@@ -257,7 +272,8 @@ def main():
         # ==========================================
         total_pohyby = df_pick['Pohyby_Rukou'].sum()
         total_box = df_pick['Pohyby_Box'].sum()
-        total_loose = df_pick['Pohyby_Loose'].sum()
+        total_loose_ok = df_pick['Pohyby_Loose_OK'].sum()
+        total_loose_miss = df_pick['Pohyby_Loose_Miss'].sum()
 
         if total_pohyby > 0:
             st.divider()
@@ -265,11 +281,13 @@ def main():
             st.markdown(t('ratio_desc'))
             
             pct_box = (total_box / total_pohyby) * 100
-            pct_loose = (total_loose / total_pohyby) * 100
+            pct_ok = (total_loose_ok / total_pohyby) * 100
+            pct_miss = (total_loose_miss / total_pohyby) * 100
             
-            col_r1, col_r2 = st.columns(2)
+            col_r1, col_r2, col_r3 = st.columns(3)
             col_r1.metric(t('ratio_master'), f"{pct_box:.1f} %", f"{total_box:,.0f} pohybů")
-            col_r2.metric(t('ratio_loose'), f"{pct_loose:.1f} %", f"{total_loose:,.0f} pohybů", delta_color="off")
+            col_r2.metric(t('ratio_loose_ok'), f"{pct_ok:.1f} %", f"{total_loose_ok:,.0f} pohybů")
+            col_r3.metric(t('ratio_loose_miss'), f"{pct_miss:.1f} %", f"{total_loose_miss:,.0f} pohybů", delta_color="inverse")
 
         # ==========================================
         # ANALÝZY A ZAKÁZKY
@@ -279,7 +297,8 @@ def main():
             celkove_mnozstvi=('Qty', 'sum'),
             celkem_pohybu=('Pohyby_Rukou', 'sum'),
             pohyby_box=('Pohyby_Box', 'sum'),
-            pohyby_loose=('Pohyby_Loose', 'sum'),
+            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
+            pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
             celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
             Box_Sizes_List=('Box_Sizes_List', 'first')
         ).reset_index()
@@ -293,13 +312,14 @@ def main():
             'velikost_kartonu': t('col_box'),
             'celkem_pohybu': t('col_mov'),
             'pohyby_box': t('col_mov_box'),
-            'pohyby_loose': t('col_mov_loose'),
+            'pohyby_loose_ok': t('col_mov_loose_ok'),
+            'pohyby_loose_miss': t('col_mov_loose_miss'),
             'celkove_mnozstvi': t('col_qty'),
             'celkova_natacena_vaha': t('col_wgt')
         }, inplace=True)
 
         top_100 = all_materials_agg.sort_values(by=t('col_mov'), ascending=False).head(100)
-        top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose'), t('col_mov')]]
+        top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
 
         def is_valid_cert(certs):
             valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
@@ -313,8 +333,8 @@ def main():
             certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
             total_qty=('Qty', 'sum'), num_positions=('Source Storage Bin', 'nunique'),
             celkem_pohybu=('Pohyby_Rukou', 'sum'), pohyby_box=('Pohyby_Box', 'sum'), 
-            pohyby_loose=('Pohyby_Loose', 'sum'), vaha_zakazky=('Celkova_Vaha_KG', 'sum'),
-            max_rozmer=('Piece_Max_Dim_CM', 'first')
+            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'), pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
+            vaha_zakazky=('Celkova_Vaha_KG', 'sum'), max_rozmer=('Piece_Max_Dim_CM', 'first')
         )
         filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(is_valid_cert))]
 
@@ -329,8 +349,8 @@ def main():
             c4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
 
             with st.expander(t('exp_detail_title')):
-                display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
-                display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
+                display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
+                display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
                 st.dataframe(display_df, use_container_width=True)
         else:
             st.warning(t('no_orders'))
@@ -342,10 +362,9 @@ def main():
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
             metodika_df = pd.DataFrame({
-                "Téma": ["O reportu", "Poměr spolehlivosti dat", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
+                "Téma": ["O reportu", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
                 "Popis": [
                     "Tento report odstraňuje iluzi 'naskenovaných kusů' a odhaduje skutečný počet fyzických pohybů pickera.",
-                    f"Výpočty jsou z {pct_box:.1f} % přesné dle krabic a z {pct_loose:.1f} % po volných kusech.",
                     "Odpočet celých kartonů (balení definované v MARM nebo ručním souboru). 1 karton = 1 pohyb.",
                     "Zbytek kusů, které jsou příliš těžké nebo velké, se bere po jednom. 1 kus = 1 pohyb.",
                     "Zbylé lehké a drobné kusy se berou do hrsti (dle nastavení).",
@@ -356,8 +375,8 @@ def main():
             })
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
-            zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose', 'vaha_zakazky', 'max_rozmer']].copy()
-            zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose'), t('col_wgt'), t('col_max_dim')]
+            zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
+            zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
             zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek')
 
             top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materialy')
@@ -383,7 +402,7 @@ def main():
             chart.add_data(data, titles_from_data=True)
             chart.set_categories(cats)
             chart.legend = None 
-            worksheet.add_chart(chart, "J2")
+            worksheet.add_chart(chart, "K2")
 
             all_materials_export = all_materials_agg.drop(columns=['Box_Sizes_List'])
             all_materials_export.to_excel(writer, index=False, sheet_name='Vsechna_Data_Materialu')
@@ -400,7 +419,7 @@ def main():
 
         col_top1, col_top2 = st.columns([1.5, 1])
         with col_top1:
-            st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose'): "{:.0f}"}), use_container_width=True, hide_index=True)
+            st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
         with col_top2:
             st.bar_chart(top_100.set_index(t('col_mat'))[t('col_mov')])
 
