@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import re
+from openpyxl.chart import BarChart, Reference
 
 # ==========================================
 # 1. NASTAVENÍ A LOKALIZACE
@@ -32,7 +33,7 @@ TEXTS = {
         'hmat_label': "Max ks lehkých dílů do hrsti",
         'hmat_help': "Kolik malých kusů vezme picker průměrně do jedné ruky / jedním hmatem?",
         'exclude_label': "Vyloučit materiály z výpočtů:",
-        'sec_methodology': "📖 Jak a proč se počítají pohyby?",
+        'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
         'methodology_text': """
 ### ⚙️ Krok za krokem: Jak funguje algoritmus?
 Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
@@ -57,14 +58,11 @@ Příklad:
         'col_wgt': "Hmotnost (kg)",
         'col_max_dim': "Rozměr (cm)",
         'col_cert': "Certifikát",
-        'sec_charts': "📊 Manažerské přehledy: Zátěž vs. Objem",
-        'chart1_title': "Iluze kusů: Vykázané kusy vs. Reálné fyzické pohyby (TOP 15)",
-        'chart2_title': "Těžká váha: TOP 15 materiálů podle zvednutých kilogramů",
         'sec2_title': "🏆 TOP 100 fyzicky nejnáročnějších materiálů (dle hmatů)",
         'col_lines': "Řádky (Návštěvy)",
         'col_box': "Hierarchie balení",
         'val_loose': "Volné kusy",
-        'btn_download': "📥 Stáhnout kompletní report (Excel Workbook s 4 listy)",
+        'btn_download': "📥 Stáhnout kompletní report (Excel Workbook s grafem)",
         'no_orders': "Nenalezeny žádné zakázky pro zobrazení.",
     },
     'en': {
@@ -88,16 +86,16 @@ Příklad:
         'exclude_label': "Exclude materials:",
         'sec_methodology': "📖 For Management: Why and how do we calculate movements?",
         'methodology_text': """
-### ❓ Why don't we measure pieces?
-Imagine two pickers:
-* **Picker A:** Picks 5,000 rubber bands. Grabs 1 box (4,800 pcs) and 200 pcs by handfuls of 5. Made **41 movements** but reports 5,000 pcs.
-* **Picker B:** Picks 100 brake rotors (3 kg each). Picks one by one. Made **100 heavy movements**, reports 100 pcs.
-*Standard reporting penalizes Picker B. Our algorithm fixes this.*
-
-### ⚙️ How the Algorithm Works
+### ⚙️ Step by Step: How does the algorithm work?
+The application approaches each picking line like a real person:
 1. **Identify Cartons:** Checks manual data, then MARM. If a box holds 50 pcs and order is 120 pcs -> **2 full boxes = 2 movements**. 20 pcs remain.
 2. **Evaluate Heavy/Large:** If the remaining 20 pcs exceed the weight/dimension limit, they are picked individually = **20 movements**.
 3. **Small Handfuls:** If light/small, we assume grabbing (e.g. 3 pcs/grab) = **7 movements**.
+
+Example:
+* **Picker A:** Picks 5,000 rubber bands. Grabs 1 box (4,800 pcs) and 200 pcs by handfuls of 5. Made **41 movements** but reports 5,000 pcs.
+* **Picker B:** Picks 100 brake rotors (3 kg each). Picks one by one. Made **100 heavy movements**, reports 100 pcs.
+*Standard reporting unfairly penalizes Picker B. The algorithm fixes this bias.*
         """,
         'sec1_title': "🎯 Single-Material Pallet Orders",
         'm_orders': "Orders",
@@ -111,14 +109,11 @@ Imagine two pickers:
         'col_wgt': "Weight (kg)",
         'col_max_dim': "Max Dim (cm)",
         'col_cert': "Certificate",
-        'sec_charts': "📊 Management Dashboards: Workload vs Volume",
-        'chart1_title': "The Piece Illusion: Pieces vs. Real Movements (TOP 15)",
-        'chart2_title': "Heavyweight: TOP 15 Materials by Lifted Kilograms",
         'sec2_title': "🏆 TOP 100 Most Demanding Materials (by movements)",
         'col_lines': "Lines (Visits)",
         'col_box': "Packaging Hierarchy",
         'val_loose': "Loose",
-        'btn_download': "📥 Download Comprehensive Report (Excel Workbook with 4 Sheets)",
+        'btn_download': "📥 Download Comprehensive Report (Excel Workbook with Charts)",
         'no_orders': "No orders found.",
     }
 }
@@ -258,10 +253,10 @@ def main():
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
         # ==========================================
-        # ANALÝZY A GRAFY
+        # ANALÝZY
         # ==========================================
         
-        # Agregace všech materiálů pro grafy a TOP 100
+        # Agregace všech materiálů pro TOP 100
         all_materials_agg = df_pick.groupby('Material').agg(
             pocet_picku=('Material', 'count'),
             celkove_mnozstvi=('Qty', 'sum'),
@@ -320,33 +315,13 @@ def main():
         else:
             st.warning(t('no_orders'))
 
-        # Zobrazení UI - Sekce Grafy
-        st.divider()
-        st.subheader(t('sec_charts'))
-        
-        chart_col1, chart_col2 = st.columns(2)
-        with chart_col1:
-            st.markdown(f"**{t('chart1_title')}**")
-            chart_data_1 = top_100.head(15).set_index(t('col_mat'))[[t('col_qty'), t('col_mov')]]
-            st.bar_chart(chart_data_1)
-        
-        with chart_col2:
-            st.markdown(f"**{t('chart2_title')}**")
-            chart_data_2 = all_materials_agg.sort_values(by=t('col_wgt'), ascending=False).head(15)
-            st.bar_chart(chart_data_2.set_index(t('col_mat'))[t('col_wgt')], color="#FF4B4B")
-
-        # Zobrazení UI - Sekce TOP 100
-        st.divider()
-        st.subheader(t('sec2_title'))
-
         # ==========================================
-        # EXPORT DO EXCELU (S VÍCE LISTY A METODIKOU)
+        # EXPORT DO EXCELU (S GRAFEM A METODIKOU)
         # ==========================================
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
-            # List 1: Metodika a Souhrn
-            # Vytvoříme úhlednou textovou tabulku pro Excel
+            # List 1: Metodika
             metodika_df = pd.DataFrame({
                 "Téma": ["O reportu", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
                 "Popis": [
@@ -361,27 +336,62 @@ def main():
             })
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
-            # List 2: Vyfiltrované zakázky (jen hezky přejmenované)
+            # List 2: Vyfiltrované zakázky
             zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'vaha_zakazky', 'max_rozmer']].copy()
             zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_wgt'), t('col_max_dim')]
             zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek')
 
-            # List 3: TOP 100
+            # List 3: TOP 100 s grafem
             top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materialy')
+            
+            # --- Vložení nativního Excel grafu ---
+            workbook = writer.book
+            worksheet = writer.sheets['TOP_100_Materialy']
+            
+            chart = BarChart()
+            chart.type = "col"
+            chart.style = 10
+            chart.title = "Zátěž materiálů dle fyzických pohybů"
+            chart.y_axis.title = t('col_mov')
+            chart.x_axis.title = t('col_mat')
+            chart.width = 25
+            chart.height = 12
+            
+            col_mat_idx = list(top_100.columns).index(t('col_mat')) + 1
+            col_mov_idx = list(top_100.columns).index(t('col_mov')) + 1
+            
+            data = Reference(worksheet, min_col=col_mov_idx, min_row=1, max_row=len(top_100)+1)
+            cats = Reference(worksheet, min_col=col_mat_idx, min_row=2, max_row=len(top_100)+1)
+            
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(cats)
+            chart.legend = None # Skrytí legendy pro čistší vzhled
+            
+            # Vložení grafu vedle tabulky
+            worksheet.add_chart(chart, "H2")
 
-            # List 4: Všechna nezfiltrovaná data (pro analytiky)
+            # List 4: Všechna data
             all_materials_export = all_materials_agg.drop(columns=['Box_Sizes_List'])
             all_materials_export.to_excel(writer, index=False, sheet_name='Vsechna_Data_Materialu')
 
+        # Zobrazení UI - Sekce TOP 100
+        st.divider()
+        st.subheader(t('sec2_title'))
+        
         # Tlačítko pro stažení
         st.download_button(
             label=t('btn_download'),
             data=buffer.getvalue(),
-            file_name="Analýza_Ergonomie_ skladu.xlsx",
+            file_name="Analýza_Ergonomie_skladu.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}"}), use_container_width=True, hide_index=True)
+        # Starý jeden graf vedle tabulky
+        col_top1, col_top2 = st.columns([1.5, 1])
+        with col_top1:
+            st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}"}), use_container_width=True, hide_index=True)
+        with col_top2:
+            st.bar_chart(top_100.set_index(t('col_mat'))[t('col_mov')])
 
 if __name__ == "__main__":
     main()
