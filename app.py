@@ -6,9 +6,9 @@ st.set_page_config(page_title="Analýza Pickování", layout="wide")
 
 def main():
     st.title("📦 Analýza Pickování")
-    st.write("Tato aplikace vyfiltruje zakázky, které obsahují **pouze jeden materiál** a byly pickovány **na paletu** (ověřeno dle formátu Certificate Number). Následně vypočítá průměry.")
+    st.write("Tato aplikace vyfiltruje zakázky, které obsahují **pouze jeden materiál** a byly pickovány **na paletu** (ověřeno dle formátu Certificate Number). Následně vypočítá průměry a zobrazí detaily včetně materiálu.")
 
-    # Komponenta pro nahrání souboru přes web (odstraní chybu FileNotFoundError)
+    # Komponenta pro nahrání souboru přes web
     uploaded_file = st.file_uploader("Nahrajte exportovaný soubor (CSV nebo Excel)", type=['csv', 'xlsx'])
 
     if uploaded_file is not None:
@@ -29,18 +29,18 @@ def main():
                 # 2. Funkce pro ověření certifikátu
                 def is_valid_cert(certs):
                     valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
-                    # Nesmí být prázdné
                     if len(valid_certs) == 0:
                         return False
-                    # Žádný z certifikátů nesmí začínat na '460'
                     for c in valid_certs:
                         if c.startswith('460'):
                             return False
                     return True
 
                 # 3. Seskupení dat podle zakázky (Delivery)
+                # PŘIDÁNO: Získání prvního (a díky filtru jediného) materiálu pro danou zakázku
                 grouped = df.groupby('Delivery').agg(
                     num_materials=('Material', 'nunique'),
+                    material=('Material', 'first'), # Zde získáme konkrétní materiál
                     certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
                     total_qty=('Qty', 'sum'),
                     num_positions=('Source Storage Bin', 'nunique')
@@ -67,6 +67,19 @@ def main():
                     col1.metric("Počet vyfiltrovaných zakázek", f"{total_filtered_orders:,}".replace(',', ' '))
                     col2.metric("Průměrný počet kusů na zakázku", f"{avg_qty:.2f}")
                     col3.metric("Průměrný počet pozic na zakázku", f"{avg_pos:.2f}")
+
+                    # 6. Zobrazení detailů s materiálem
+                    with st.expander("Zobrazit detail vyfiltrovaných zakázek (včetně materiálu)"):
+                        # Přejmenujeme sloupce pro hezčí zobrazení v tabulce
+                        display_df = filtered_orders[['material', 'certs', 'total_qty', 'num_positions']].copy()
+                        display_df.rename(columns={
+                            'material': 'Materiál',
+                            'certs': 'Certifikáty',
+                            'total_qty': 'Celkem kusů',
+                            'num_positions': 'Počet pozic'
+                        }, inplace=True)
+                        
+                        st.dataframe(display_df, use_container_width=True)
 
                 else:
                     st.warning("Nenalezeny žádné zakázky odpovídající zadaným kritériím.")
