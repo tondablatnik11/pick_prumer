@@ -4,231 +4,216 @@ import numpy as np
 import io
 import re
 
-# 1. Nastavení stránky na profesionální vzhled
-st.set_page_config(page_title="Analýza Skladové Zátěže | Warehouse Analysis", page_icon="📈", layout="wide")
+# ==========================================
+# 1. NASTAVENÍ A LOKALIZACE
+# ==========================================
+st.set_page_config(page_title="Analýza Skladové Zátěže", page_icon="📈", layout="wide")
 
-# Inicializace jazyka v session_state
 if 'lang' not in st.session_state:
     st.session_state.lang = 'cs'
 
-# Slovník překladů
 TEXTS = {
     'cs': {
         'switch_lang': "🇬🇧 Switch to English",
-        'title': "📈 Analýza Skladové Zátěže & Pickování",
-        'desc': "Tento analytický nástroj měří **skutečnou fyzickou náročnost vychystávání** ve skladu. Spojením provozních dat (Pick), kmenových dat (MARM) a **ručního ověření balení** eliminuje zkreslení počtu kusů a přesně modeluje fyzické pohyby (hmaty) u regálu.",
+        'title': "📈 Analýza Skladové Zátěže a Ergonomie Pickování",
+        'desc': "Nástroj pro měření **skutečné fyzické náročnosti** vychystávání. Běžné systémy měří pouze 'počet kusů', což zkresluje výkon (1000 drobných součástek vs. 100 těžkých dílů). Tato aplikace pomocí kmenových dat (MARM) a fyzických ověření modeluje **skutečný počet pohybů rukou (hmatů)** a **zvednutou hmotnost** u regálu.",
         'upload_title': "📁 Nahrání vstupních dat",
         'upload_help': "Nahrajte Pick report, MARM report a volitelně i soubor s ručním ověřením TOP materiálů.",
-        'loading': "Načítám, identifikuji a propojuji soubory...",
-        'err_pick': "Nepodařilo se najít Pick report (chybí sloupec 'Delivery'). Nahrajte prosím správný soubor.",
-        'warn_marm': "Nebyl nahrán MARM report. Výpočet pohybů bude pouze orientační bez krabic a vah.",
-        'info_clean': "💡 **Informace o čištění dat:** Z výpočtů bylo kompletně vyloučeno **{} zakázek**, u kterých došlo k odběru celé manipulační jednotky ('X').",
-        'info_manual': "✅ **Ruční ověření:** Úspěšně načteno vlastní balení z nahrávaného souboru pro **{} materiálů**. Tato data mají přednost před MARMem!",
+        'loading': "Zpracovávám logiku hierarchie balení a vah...",
+        'err_pick': "Nepodařilo se najít Pick report (chybí sloupec 'Delivery').",
+        'warn_marm': "Nebyl nahrán MARM report. Výpočet bude pouze orientační.",
+        'info_clean': "💡 Z výpočtů jemné motoriky bylo vyloučeno **{} zakázek**, kde byla snímána celá manipulační jednotka / paleta ('X').",
+        'info_manual': "✅ Načteno ruční ověření balení pro **{} materiálů**. (Priorita před MARM)",
         'sidebar_title': "⚙️ Fyzické limity pickera",
-        'weight_label': "Od jaké váhy (kg) brát kusy po 1?",
-        'weight_help': "Pokud 1 volný kus váží více než tato hodnota, nelze jich vzít více do jedné ruky.",
-        'dim_label': "Od jakého rozměru (cm) brát kusy po 1?",
-        'dim_help': "Pokud nejdelší strana kusu (délka/šířka/výška) přesahuje tuto hodnotu v cm, bere se po jednom.",
-        'hmat_label': "Max kusů do ruky (pro lehké a malé díly)",
-        'hmat_help': "Kolik drobných kusů dokáže picker chytit do hrsti nebo rychle odpočítat najednou?",
+        'weight_label': "Hranice pro nošení po 1 ks (kg)",
+        'weight_help': "Kusy těžší než tato hodnota bere picker zásadně po jednom.",
+        'dim_label': "Hranice rozměru pro 1 ks (cm)",
+        'dim_help': "Pokud je nejdelší hrana kusu delší než limit, bere se po jednom.",
+        'hmat_label': "Max ks lehkých dílů do hrsti",
+        'hmat_help': "Kolik malých kusů vezme picker průměrně do jedné ruky / jedním hmatem?",
         'exclude_label': "Vyloučit materiály z výpočtů:",
-        'sec1_title': "🎯 Analýza paletových zakázek (1 materiál)",
-        'm_orders': "Počet zakázek",
-        'm_qty': "Prům. kusů / zakázka",
-        'm_pos': "Prům. pozic / zakázka",
-        'm_mov': "Prům. pohybů / zakázka",
-        'exp_calc_title': "ℹ️ Detailní vysvětlení: Jak se počítají pohyby?",
-        'exp_calc_text': """
-**Výpočet automaticky prochází tyto kroky pro každý řádek pickování:**
-1. **Odběr po celých kartonech:** Systém primárně využívá ručně nahrané balení, jinak použije MARM. Dokáže počítat i s více krabicemi (např. nejprve spočítá krabice po 90 ks, pak po 6 ks = co balení, to 1 pohyb).
-2. **Zbylé volné kusy (Těžké/Velké):** Zbylé kusy se zkontrolují podle váhy a rozměrů. Pokud kus váží více než limit **NEBO** je jeho nejdelší strana delší než limit, picker je musí brát po jednom = 1 kus je 1 pohyb.
-3. **Zbylé volné kusy (Lehké/Malé):** U lehkých a drobných dílů systém předpokládá nabrání do hrsti (nastaveno v panelu) = např. 20 ks znamená jen cca 7 pohybů.
+        'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
+        'methodology_text': """
+### ❓ Proč už nemůžeme měřit jen kusy?
+Představte si dva pracovníky ve skladu:
+* **Picker A:** Má za úkol vychystat 5 000 ks drobných gumiček. Z regálu vezme jednu originální krabici (4 800 ks) a 200 ks dobere volně po hrstech (např. po 5 kusech). Vykonal zhruba **41 fyzických pohybů**, ale v systému svítí výkon 5 000 ks.
+* **Picker B:** Má vychystat 100 ks brzdových kotoučů (každý váží 3 kg). Musí je vzít a přesunout po jednom. Vykonal **100 těžkých fyzických pohybů**, ale systém ukazuje výkon jen 100 ks.
+*Klasický report by nespravedlivě potrestal Pickera B, ačkoliv odvedl mnohem těžší práci. Náš algoritmus toto zkreslení narovnává.*
+
+### ⚙️ Krok za krokem: Jak funguje náš algoritmus?
+Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
+1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů.
+2. **Vyhodnotí váhu a rozměr zbytku:** U zbylých 20 ks zkontroluje limity zadané v levém panelu (např. >2 kg nebo >15 cm). Pokud kus limit překračuje, musí se brát po jednom kusu = **20 pohybů**.
+3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
+**Výsledkem je naprosto přesný odhad skutečné fyzické zátěže!**
         """,
-        'exp_detail_title': "Zobrazit detail vyfiltrovaných zakázek",
+        'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
+        'm_orders': "Počet zakázek",
+        'm_qty': "Prům. kusů / zakázku",
+        'm_pos': "Prům. pozic / zakázku",
+        'm_mov': "Prům. fyz. pohybů",
+        'exp_detail_title': "Zobrazit tabulku zakázek (1 materiál)",
         'col_mat': "Materiál",
-        'col_qty': "Celkem kusů",
-        'col_mov': "Pohyby rukou",
-        'col_wgt': "Odhad váhy (kg)",
-        'col_max_dim': "Max rozměr (cm)",
-        'col_cert': "Certifikáty",
-        'no_orders': "Nenalezeny žádné zakázky odpovídající zadaným kritériím.",
-        'sec2_title': "🏆 TOP 100 fyzicky nejnáročnějších materiálů (ze všech volných picků)",
-        'col_lines': "Příjezdy (řádky)",
-        'col_box': "Ks v balení (Hierarchie)",
-        'val_loose': "Volné (Po kusech)",
-        'btn_download': "📥 Stáhnout tabulku jako Excel (.xlsx)"
+        'col_qty': "Kusů celkem",
+        'col_mov': "Fyzické pohyby rukou",
+        'col_wgt': "Hmotnost (kg)",
+        'col_max_dim': "Rozměr (cm)",
+        'col_cert': "Certifikát",
+        'sec_charts': "📊 Manažerské přehledy: Zátěž vs. Objem",
+        'chart1_title': "Iluze kusů: Vykázané kusy vs. Reálné fyzické pohyby (TOP 15)",
+        'chart2_title': "Těžká váha: TOP 15 materiálů podle zvednutých kilogramů",
+        'sec2_title': "🏆 TOP 100 fyzicky nejnáročnějších materiálů (dle hmatů)",
+        'col_lines': "Řádky (Návštěvy)",
+        'col_box': "Hierarchie balení",
+        'val_loose': "Volné kusy",
+        'btn_download': "📥 Stáhnout kompletní report (Excel Workbook s 4 listy)",
+        'no_orders': "Nenalezeny žádné zakázky pro zobrazení.",
     },
     'en': {
         'switch_lang': "🇨🇿 Přepnout do češtiny",
-        'title': "📈 Warehouse Workload & Picking Analysis",
-        'desc': "This tool measures the **true physical demand of picking**. By merging Pick reports, MARM data, and **manual packaging overrides**, it accurately models how many physical hand movements the picker had to perform.",
+        'title': "📈 Warehouse Workload & Ergonomics Analysis",
+        'desc': "A tool to measure the **true physical demand** of picking. Standard systems measure 'pieces', which skews performance (1000 screws vs 100 heavy rotors). This app merges SAP (MARM) and manual verifications to model **actual hand movements** and **lifted weight**.",
         'upload_title': "📁 Upload Input Data",
-        'upload_help': "Upload Pick report, MARM report, and optionally a Manual Override file for TOP materials.",
-        'loading': "Loading, identifying, and merging files...",
-        'err_pick': "Could not find Pick report (missing 'Delivery' column). Please upload the correct file.",
-        'warn_marm': "MARM report not uploaded. Movement calculation will be approximate.",
-        'info_clean': "💡 **Data Cleaning Info:** Excluded **{} orders** completely because they contained full handling unit picks ('X').",
-        'info_manual': "✅ **Manual Override:** Successfully loaded custom packaging for **{} materials** from the uploaded file. These override MARM data!",
+        'upload_help': "Upload Pick report, MARM report, and an optional Manual Packaging Override file.",
+        'loading': "Processing packaging hierarchy and weights...",
+        'err_pick': "Pick report missing (no 'Delivery' column).",
+        'warn_marm': "MARM report missing. Calculations will be rough.",
+        'info_clean': "💡 Excluded **{} orders** consisting of full handling units ('X').",
+        'info_manual': "✅ Loaded manual packaging for **{} materials**. (Overrides MARM)",
         'sidebar_title': "⚙️ Picker's Physical Limits",
         'weight_label': "Weight limit for 1-by-1 pick (kg)",
-        'weight_help': "If 1 loose piece weighs more than this, it cannot be grabbed in multiples.",
-        'dim_label': "Dimension limit for 1-by-1 pick (cm)",
-        'dim_help': "If the longest side (L/W/H) exceeds this value in cm, it must be picked one by one.",
-        'hmat_label': "Max pieces per grab (light & small parts)",
-        'hmat_help': "How many tiny pieces can the picker grab in one handful or quickly count at once?",
-        'exclude_label': "Exclude materials from calculations:",
-        'sec1_title': "🎯 Pallet Orders Analysis (1 material)",
-        'm_orders': "Number of orders",
-        'm_qty': "Avg pieces / order",
-        'm_pos': "Avg bins / order",
-        'm_mov': "Avg movements / order",
-        'exp_calc_title': "ℹ️ Detailed Explanation: How are movements calculated?",
-        'exp_calc_text': """
-**The calculation automatically follows these steps for each picking line:**
-1. **Full Carton Picks:** The system primarily uses your manually verified packaging, otherwise falls back to MARM. It can handle multiple box sizes (e.g., 90 pcs boxes first, then 6 pcs boxes = 1 movement per box).
-2. **Remaining Loose Pieces (Heavy/Large):** The remaining pieces are checked. If a piece exceeds the weight limit **OR** its longest side exceeds the dimension limit, they are picked one by one = 1 movement per piece.
-3. **Remaining Loose Pieces (Light/Small):** For light and small parts, the system assumes grab-picking (e.g., 20 pcs equal approx 7 movements).
+        'weight_help': "Pieces heavier than this are picked one by one.",
+        'dim_label': "Dimension limit for 1-by-1 (cm)",
+        'dim_help': "Pieces longer than this are picked one by one.",
+        'hmat_label': "Max pieces per grab (light parts)",
+        'hmat_help': "How many small pieces can a picker grab at once?",
+        'exclude_label': "Exclude materials:",
+        'sec_methodology': "📖 For Management: Why and how do we calculate movements?",
+        'methodology_text': """
+### ❓ Why don't we measure pieces?
+Imagine two pickers:
+* **Picker A:** Picks 5,000 rubber bands. Grabs 1 box (4,800 pcs) and 200 pcs by handfuls of 5. Made **41 movements** but reports 5,000 pcs.
+* **Picker B:** Picks 100 brake rotors (3 kg each). Picks one by one. Made **100 heavy movements**, reports 100 pcs.
+*Standard reporting penalizes Picker B. Our algorithm fixes this.*
+
+### ⚙️ How the Algorithm Works
+1. **Identify Cartons:** Checks manual data, then MARM. If a box holds 50 pcs and order is 120 pcs -> **2 full boxes = 2 movements**. 20 pcs remain.
+2. **Evaluate Heavy/Large:** If the remaining 20 pcs exceed the weight/dimension limit, they are picked individually = **20 movements**.
+3. **Small Handfuls:** If light/small, we assume grabbing (e.g. 3 pcs/grab) = **7 movements**.
         """,
-        'exp_detail_title': "Show details of filtered orders",
+        'sec1_title': "🎯 Single-Material Pallet Orders",
+        'm_orders': "Orders",
+        'm_qty': "Avg Pcs / Order",
+        'm_pos': "Avg Bins / Order",
+        'm_mov': "Avg Physical Moves",
+        'exp_detail_title': "Show Orders Table (1 Material)",
         'col_mat': "Material",
         'col_qty': "Total Pieces",
         'col_mov': "Hand Movements",
-        'col_wgt': "Est. Weight (kg)",
-        'col_max_dim': "Max Dim. (cm)",
-        'col_cert': "Certificates",
-        'no_orders': "No orders found matching the criteria.",
-        'sec2_title': "🏆 TOP 100 Physically Most Demanding Materials",
+        'col_wgt': "Weight (kg)",
+        'col_max_dim': "Max Dim (cm)",
+        'col_cert': "Certificate",
+        'sec_charts': "📊 Management Dashboards: Workload vs Volume",
+        'chart1_title': "The Piece Illusion: Pieces vs. Real Movements (TOP 15)",
+        'chart2_title': "Heavyweight: TOP 15 Materials by Lifted Kilograms",
+        'sec2_title': "🏆 TOP 100 Most Demanding Materials (by movements)",
         'col_lines': "Lines (Visits)",
-        'col_box': "Pcs in Box (Hierarchy)",
-        'val_loose': "Loose (Piece by piece)",
-        'btn_download': "📥 Download table as Excel (.xlsx)"
+        'col_box': "Packaging Hierarchy",
+        'val_loose': "Loose",
+        'btn_download': "📥 Download Comprehensive Report (Excel Workbook with 4 Sheets)",
+        'no_orders': "No orders found.",
     }
 }
 
-def t(key):
-    return TEXTS[st.session_state.lang][key]
+def t(key): return TEXTS[st.session_state.lang][key]
 
 def main():
+    # Změna jazyka
     col_spacer, col_lang = st.columns([8, 1])
     with col_lang:
         if st.button(t('switch_lang')):
             st.session_state.lang = 'en' if st.session_state.lang == 'cs' else 'cs'
             st.rerun()
 
+    # Hlavička a vysvětlení metodiky
     st.title(t('title'))
     st.markdown(t('desc'))
+    
+    with st.expander(t('sec_methodology'), expanded=False):
+        st.markdown(t('methodology_text'))
     st.divider()
 
+    # Nahrávání souborů
     with st.container():
         st.subheader(t('upload_title'))
-        uploaded_files = st.file_uploader(
-            t('upload_help'), 
-            type=['csv', 'xlsx'], 
-            accept_multiple_files=True
-        )
+        uploaded_files = st.file_uploader(t('upload_help'), type=['csv', 'xlsx'], accept_multiple_files=True)
 
-    if uploaded_files and len(uploaded_files) > 0:
-        df_pick = None
-        df_marm = None
-        df_manual = None
+    if uploaded_files:
+        df_pick, df_marm, df_manual = None, None, None
 
         with st.spinner(t('loading')):
             for file in uploaded_files:
-                if file.name.lower().endswith('.csv'):
+                if file.name.lower().endswith('.csv'): 
                     temp_df = pd.read_csv(file, dtype=str)
-                else:
+                else: 
                     temp_df = pd.read_excel(file, dtype=str)
                 
-                # Inteligentní rozeznání souborů
-                if 'Delivery' in temp_df.columns:
+                if 'Delivery' in temp_df.columns: 
                     df_pick = temp_df
-                elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns:
+                elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns: 
                     df_marm = temp_df
                 else:
-                    # Pokud má aspoň 2 sloupce a není to ani MARM ani Pick, jde o soubor ručního ověření
-                    if len(temp_df.columns) >= 2:
+                    if len(temp_df.columns) >= 2: 
                         df_manual = temp_df
 
         if df_pick is None:
             st.error(t('err_pick'))
             return
-            
-        if df_marm is None:
-            st.warning(t('warn_marm'))
 
+        # ==========================================
+        # ZPRACOVÁNÍ DAT
+        # ==========================================
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
 
-        # 1. VYŘAZENÍ ZAKÁZEK S 'X'
+        # Vyřazení "X" (celé palety)
         df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
         zakazky_s_x = df_pick[df_pick['Removal of total SU'] == 'X']['Delivery'].unique()
         df_pick = df_pick[~df_pick['Delivery'].isin(zakazky_s_x)].copy()
-        
         st.info(t('info_clean').format(len(zakazky_s_x)))
 
-        # 2. ZPRACOVÁNÍ RUČNÍHO OVĚŘENÍ MATERIÁLŮ (Priorita č.1)
+        # Ruční data
         manual_boxes = {}
         if df_manual is not None and not df_manual.empty:
-            col_mat = df_manual.columns[0]
-            col_pkg = df_manual.columns[1]
-            
-            for idx, row in df_manual.iterrows():
-                mat = str(row[col_mat]).strip()
-                pkg = str(row[col_pkg]).strip()
-                if pd.isna(mat) or mat == 'nan' or mat == 'None': continue
-                
-                # Chytrá Regex extrakce - najde všechna čísla před "ks" nebo za "K-"
+            c_mat, c_pkg = df_manual.columns[0], df_manual.columns[1]
+            for _, row in df_manual.iterrows():
+                mat, pkg = str(row[c_mat]).strip(), str(row[c_pkg]).strip()
+                if pd.isna(mat) or mat in ['nan', 'None']: continue
                 nums = re.findall(r'(\d+)\s*ks|\bK-(\d+)\b', pkg, flags=re.IGNORECASE)
-                extracted = []
-                for match in nums:
-                    for group in match:
-                        if group: extracted.append(int(group))
-                
-                # Seřadíme sestupně (od největší krabice po nejmenší pod-krabičky)
-                extracted = sorted(extracted, reverse=True)
-                
-                # Pokud v textu nebylo číslo, ale je tam "po kusech", nastavíme nuceně krabici 1
-                if not extracted and 'po kusech' in pkg.lower():
-                    extracted = [1]
-                    
-                if extracted:
-                    manual_boxes[mat] = extracted
+                ext = sorted([int(g) for m in nums for g in m if g], reverse=True)
+                if not ext and 'po kusech' in pkg.lower(): ext = [1]
+                if ext: manual_boxes[mat] = ext
+            if manual_boxes: st.success(t('info_manual').format(len(manual_boxes)))
 
-            if manual_boxes:
-                st.success(t('info_manual').format(len(manual_boxes)))
-
-        # 3. ZPRACOVÁNÍ MARM DAT (Váhy, rozměry a záložní kartony)
-        box_dict = {}
-        weight_dict = {}
-        dim_dict = {}
-
+        # MARM data
+        box_dict, weight_dict, dim_dict = {}, {}, {}
         if df_marm is not None:
             df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
             df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
-            box_sizes = df_boxes.groupby('Material')['Numerator'].max().to_dict()
-            box_dict = {mat: int(size) for mat, size in box_sizes.items() if size > 1}
+            box_dict = {m: int(s) for m, s in df_boxes.groupby('Material')['Numerator'].max().to_dict().items() if s > 1}
 
             df_st = df_marm[df_marm['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])].copy()
             df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
-            
-            def to_kg(row):
-                w = row['Gross Weight']
-                u = str(row['Unit of Weight']).upper()
-                if u == 'G': return w / 1000.0
-                if u == 'MG': return w / 1000000.0
-                return w
-            df_st['Weight_KG'] = df_st.apply(to_kg, axis=1)
+            df_st['Weight_KG'] = df_st.apply(lambda r: r['Gross Weight']/1000.0 if str(r['Unit of Weight']).upper()=='G' else r['Gross Weight'], axis=1)
             weight_dict = df_st.groupby('Material')['Weight_KG'].first().to_dict()
 
             def to_cm(val, unit):
                 try:
-                    v = float(val)
-                    u = str(unit).upper().strip()
+                    v, u = float(val), str(unit).upper().strip()
                     if u == 'MM': return v / 10.0
                     if u == 'M': return v * 100.0
                     return v 
-                except:
-                    return 0.0
+                except: return 0.0
 
             df_st['L'] = df_st.apply(lambda r: to_cm(r['Length'], r['Unit of Dimension']), axis=1)
             df_st['W'] = df_st.apply(lambda r: to_cm(r['Width'], r['Unit of Dimension']), axis=1)
@@ -236,66 +221,73 @@ def main():
             df_st['Max_Dim_CM'] = df_st[['L', 'W', 'H']].max(axis=1) 
             dim_dict = df_st.groupby('Material')['Max_Dim_CM'].first().to_dict()
 
-        # 4. NAPOJENÍ HIERARCHIE BALENÍ NA PICK REPORT
-        def get_box_sizes(mat):
-            if mat in manual_boxes:
-                return manual_boxes[mat] # Použije hierarchii z ručního souboru (např. [90, 6])
-            else:
-                marm_b = box_dict.get(mat, 0)
-                return [marm_b] if marm_b > 1 else [] # Záložní z MARM
-
-        df_pick['Box_Sizes_List'] = df_pick['Material'].apply(get_box_sizes)
+        # Aplikace na Pick
+        df_pick['Box_Sizes_List'] = df_pick['Material'].apply(lambda m: manual_boxes.get(m, [box_dict.get(m, 0)] if box_dict.get(m, 0) > 1 else []))
         df_pick['Piece_Weight_KG'] = df_pick['Material'].map(weight_dict).fillna(0)
         df_pick['Piece_Max_Dim_CM'] = df_pick['Material'].map(dim_dict).fillna(0)
 
-        # POSTRANNÍ PANEL
+        # ==========================================
+        # POSTRANNÍ PANEL A VÝPOČET POHYBŮ
+        # ==========================================
         st.sidebar.header(t('sidebar_title'))
-        limit_vahy = st.sidebar.number_input(
-            t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5, help=t('weight_help'))
-        limit_rozmeru = st.sidebar.number_input(
-            t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0, help=t('dim_help'))
-        kusy_na_hmat = st.sidebar.slider(
-            t('hmat_label'), min_value=1, max_value=20, value=3, step=1, help=t('hmat_help'))
+        limit_vahy = st.sidebar.number_input(t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5, help=t('weight_help'))
+        limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0, help=t('dim_help'))
+        kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=3, step=1, help=t('hmat_help'))
+        
         st.sidebar.divider()
         unique_materials = sorted(df_pick['Material'].unique().tolist())
-        excluded_materials = st.sidebar.multiselect(
-            t('exclude_label'), options=unique_materials, default=[])
-        
-        if excluded_materials:
-            df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
+        excluded_materials = st.sidebar.multiselect(t('exclude_label'), options=unique_materials, default=[])
+        if excluded_materials: df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
-        # 5. CHYTRÝ VÝPOČET POHYBŮ S HIERARCHIÍ BALENÍ
         def spocitej_pohyby(row):
             qty = row['Qty']
             if qty <= 0: return 0
+            pohyby, zbytek, boxes = 0, qty, row['Box_Sizes_List']
             
-            pohyby = 0
-            zbytek = qty
-            boxes = row['Box_Sizes_List']
-            
-            # Postupně odečítá kartony (od největší po nejmenší pod-krabice)
             for box_size in boxes:
                 if box_size > 1 and zbytek >= box_size:
-                    plne_kartony = zbytek // box_size
-                    pohyby += plne_kartony
+                    pohyby += zbytek // box_size
                     zbytek = zbytek % box_size
                 
-            # Na úplný zbytek volných kusů kontroluje váhu a rozměry
             if zbytek > 0:
-                vaha_kusu = row['Piece_Weight_KG']
-                nejdelsi_strana = row['Piece_Max_Dim_CM']
-                
-                if vaha_kusu >= limit_vahy or nejdelsi_strana >= limit_rozmeru:
+                if row['Piece_Weight_KG'] >= limit_vahy or row['Piece_Max_Dim_CM'] >= limit_rozmeru:
                     pohyby += zbytek
                 else:
                     pohyby += np.ceil(zbytek / kusy_na_hmat)
-                    
             return pohyby
 
         df_pick['Pohyby_Rukou'] = df_pick.apply(spocitej_pohyby, axis=1)
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        # SEKCE 1: FILTRACE ZAKÁZEK
+        # ==========================================
+        # ANALÝZY A GRAFY
+        # ==========================================
+        
+        # Agregace všech materiálů pro grafy a TOP 100
+        all_materials_agg = df_pick.groupby('Material').agg(
+            pocet_picku=('Material', 'count'),
+            celkove_mnozstvi=('Qty', 'sum'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'),
+            celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
+            Box_Sizes_List=('Box_Sizes_List', 'first')
+        ).reset_index()
+
+        all_materials_agg['velikost_kartonu'] = all_materials_agg['Box_Sizes_List'].apply(
+            lambda b: " + ".join([f"{x}ks" for x in b]) if b and b != [1] else t('val_loose'))
+
+        all_materials_agg.rename(columns={
+            'Material': t('col_mat'),
+            'pocet_picku': t('col_lines'),
+            'velikost_kartonu': t('col_box'),
+            'celkem_pohybu': t('col_mov'),
+            'celkove_mnozstvi': t('col_qty'),
+            'celkova_natacena_vaha': t('col_wgt')
+        }, inplace=True)
+
+        top_100 = all_materials_agg.sort_values(by=t('col_mov'), ascending=False).head(100)
+        top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov')]]
+
+        # Agregace zakázek
         def is_valid_cert(certs):
             valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
             if len(valid_certs) == 0: return False
@@ -303,34 +295,25 @@ def main():
                 if c.startswith('460'): return False
             return True
 
-        grouped = df_pick.groupby('Delivery').agg(
-            num_materials=('Material', 'nunique'),
-            material=('Material', 'first'),
+        grouped_orders = df_pick.groupby('Delivery').agg(
+            num_materials=('Material', 'nunique'), material=('Material', 'first'),
             certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
-            total_qty=('Qty', 'sum'),
-            num_positions=('Source Storage Bin', 'nunique'),
-            celkem_pohybu=('Pohyby_Rukou', 'sum'),
-            vaha_zakazky=('Celkova_Vaha_KG', 'sum'),
+            total_qty=('Qty', 'sum'), num_positions=('Source Storage Bin', 'nunique'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'), vaha_zakazky=('Celkova_Vaha_KG', 'sum'),
             max_rozmer=('Piece_Max_Dim_CM', 'first')
         )
+        filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(is_valid_cert))]
 
-        filtered_orders = grouped[
-            (grouped['num_materials'] == 1) & 
-            (grouped['certs'].apply(is_valid_cert))
-        ]
-
+        # Zobrazení UI - Sekce 1: Zakázky
         st.divider()
         st.subheader(t('sec1_title'))
         
         if len(filtered_orders) > 0:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric(t('m_orders'), f"{len(filtered_orders):,}".replace(',', ' '))
-            col2.metric(t('m_qty'), f"{filtered_orders['total_qty'].mean():.1f}")
-            col3.metric(t('m_pos'), f"{filtered_orders['num_positions'].mean():.2f}")
-            col4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
-
-            with st.expander(t('exp_calc_title')):
-                st.markdown(t('exp_calc_text'))
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(t('m_orders'), f"{len(filtered_orders):,}".replace(',', ' '))
+            c2.metric(t('m_qty'), f"{filtered_orders['total_qty'].mean():.1f}")
+            c3.metric(t('m_pos'), f"{filtered_orders['num_positions'].mean():.2f}")
+            c4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
 
             with st.expander(t('exp_detail_title')):
                 display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
@@ -339,51 +322,68 @@ def main():
         else:
             st.warning(t('no_orders'))
 
-        # SEKCE 2: TOP 100 NEJNÁROČNĚJŠÍCH MATERIÁLŮ
+        # Zobrazení UI - Sekce Grafy
+        st.divider()
+        st.subheader(t('sec_charts'))
+        
+        chart_col1, chart_col2 = st.columns(2)
+        with chart_col1:
+            st.markdown(f"**{t('chart1_title')}**")
+            chart_data_1 = top_100.head(15).set_index(t('col_mat'))[[t('col_qty'), t('col_mov')]]
+            st.bar_chart(chart_data_1)
+        
+        with chart_col2:
+            st.markdown(f"**{t('chart2_title')}**")
+            chart_data_2 = all_materials_agg.sort_values(by=t('col_wgt'), ascending=False).head(15)
+            st.bar_chart(chart_data_2.set_index(t('col_mat'))[t('col_wgt')], color="#FF4B4B")
+
+        # Zobrazení UI - Sekce TOP 100
         st.divider()
         st.subheader(t('sec2_title'))
-        
-        if not df_pick.empty:
-            # Pomocná funkce pro vypsání hierarchie balení do tabulky (např. "90ks + 6ks")
-            def format_box_sizes(boxes):
-                if not boxes or boxes == [1]:
-                    return t('val_loose')
-                return " + ".join([f"{b}ks" for b in boxes])
 
-            top_materials = df_pick.groupby('Material').agg(
-                pocet_picku=('Material', 'count'),
-                celkove_mnozstvi=('Qty', 'sum'),
-                celkem_pohybu=('Pohyby_Rukou', 'sum'),
-                celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
-                Box_Sizes_List=('Box_Sizes_List', 'first')
-            ).reset_index()
-
-            top_100 = top_materials.sort_values(by='celkem_pohybu', ascending=False).head(100)
-            top_100['velikost_kartonu'] = top_100['Box_Sizes_List'].apply(format_box_sizes)
-            top_100 = top_100.drop(columns=['Box_Sizes_List'])
-
-            top_100.columns = [t('col_mat'), t('col_lines'), t('col_qty'), t('col_mov'), t('col_wgt'), t('col_box')]
+        # ==========================================
+        # EXPORT DO EXCELU (S VÍCE LISTY A METODIKOU)
+        # ==========================================
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
-            # Přehození sloupců pro logičtější pořadí
-            top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov')]]
-
-            # Export do Excelu (.xlsx) pomocí bufferu v paměti
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materials')
+            # List 1: Metodika a Souhrn
+            # Vytvoříme úhlednou textovou tabulku pro Excel
+            metodika_df = pd.DataFrame({
+                "Téma": ["O reportu", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
+                "Popis": [
+                    "Tento report odstraňuje iluzi 'naskenovaných kusů' a odhaduje skutečný počet fyzických pohybů pickera.",
+                    "Odpočet celých kartonů (balení definované v MARM nebo ručním souboru). 1 karton = 1 pohyb.",
+                    "Zbytek kusů, které jsou příliš těžké nebo velké, se bere po jednom. 1 kus = 1 pohyb.",
+                    "Zbylé lehké a drobné kusy se berou do hrsti (dle nastavení).",
+                    f"{limit_vahy} kg",
+                    f"{limit_rozmeru} cm",
+                    f"{kusy_na_hmat} ks"
+                ]
+            })
+            metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
-            st.download_button(
-                label=t('btn_download'),
-                data=buffer.getvalue(),
-                file_name="TOP_100_materialy.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # List 2: Vyfiltrované zakázky (jen hezky přejmenované)
+            zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'vaha_zakazky', 'max_rozmer']].copy()
+            zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_wgt'), t('col_max_dim')]
+            zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek')
 
-            col_top1, col_top2 = st.columns([1.5, 1])
-            with col_top1:
-                st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}"}), use_container_width=True, hide_index=True)
-            with col_top2:
-                st.bar_chart(top_100.set_index(t('col_mat'))[t('col_mov')])
+            # List 3: TOP 100
+            top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materialy')
+
+            # List 4: Všechna nezfiltrovaná data (pro analytiky)
+            all_materials_export = all_materials_agg.drop(columns=['Box_Sizes_List'])
+            all_materials_export.to_excel(writer, index=False, sheet_name='Vsechna_Data_Materialu')
+
+        # Tlačítko pro stažení
+        st.download_button(
+            label=t('btn_download'),
+            data=buffer.getvalue(),
+            file_name="Analýza_Ergonomie_ skladu.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}"}), use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
