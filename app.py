@@ -22,7 +22,7 @@ TEXTS = {
         'upload_help': "Nahrajte Pick report, MARM report, TO details (Queue) a volitelně i ruční ověření balení.",
         'loading': "Zpracovávám logiku hierarchie balení a propojuji s Queue...",
         'err_pick': "Nepodařilo se najít Pick report (chybí sloupec 'Delivery' nebo 'Act.qty (dest)').",
-        'info_clean': "💡 Z výpočtů jemné motoriky bylo vyloučeno **{} zakázek**, kde byla snímána celá manipulační jednotka / paleta ('X').",
+        'info_clean': "💡 Detekováno **{} zakázek** s odběrem celé palety ('X'). Byly ponechány v datech jako 1 pohyb, ale jsou vyloučeny ze spodní 'Analýzy paletových zakázek'.",
         'info_manual': "✅ Načteno ruční ověření balení pro **{} materiálů**. (Priorita před MARM)",
         'sidebar_title': "⚙️ Fyzické limity pickera",
         'weight_label': "Hranice pro nošení po 1 ks (kg)",
@@ -32,13 +32,13 @@ TEXTS = {
         'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
         'methodology_text': """
 ### ⚙️ Krok za krokem: Jak funguje algoritmus?
-1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů.
+1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů. (Pokud picker odebírá celou paletu, započítá se to jako 1 pohyb celkem).
 2. **Vyhodnotí váhu a rozměr zbytku:** U zbylých 20 ks zkontroluje limity (např. >2 kg nebo >15 cm). Pokud kus limit překračuje, musí se brát po jednom kusu = **20 pohybů**.
 3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
         """,
         'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat)",
         'ratio_desc': "Tento přehled ukazuje, jak kvalitní data jsme měli pro výpočet. Pohyby se dělí na přesně identifikované krabice, na přirozené zbytky/ověřené volné kusy a na odhady.",
-        'ratio_master': "Přesně (Krabice / Pytlíky)",
+        'ratio_master': "Přesně (Krabice / Palety)",
         'ratio_loose_ok': "Přesně (Ověřené volné / Zbytky)",
         'ratio_loose_miss': "Odhad (Chybí data o balení)",
         'sec_queue_title': "📊 Průměrná náročnost dle typu pickování (Queue)",
@@ -81,7 +81,7 @@ TEXTS = {
         'upload_help': "Upload Pick report, MARM report, TO details (Queue), and optional Manual Override file.",
         'loading': "Processing packaging hierarchy and Queue mapping...",
         'err_pick': "Pick report missing (no 'Delivery' or 'Act.qty (dest)' column).",
-        'info_clean': "💡 Excluded **{} orders** consisting of full handling units ('X').",
+        'info_clean': "💡 Detected **{} full SU ('X') orders**. They are calculated as 1 move but excluded from the 'Pallet Orders' section.",
         'info_manual': "✅ Loaded manual packaging for **{} materials**. (Overrides MARM)",
         'sidebar_title': "⚙️ Picker's Physical Limits",
         'weight_label': "Weight limit for 1-by-1 pick (kg)",
@@ -97,7 +97,7 @@ TEXTS = {
         """,
         'sec_ratio': "🎯 Calculation Source (Data Reliability)",
         'ratio_desc': "Shows how movements were calculated: exact full boxes, exact verified loose, and missing box data.",
-        'ratio_master': "Exact (Boxes / Bags)",
+        'ratio_master': "Exact (Boxes / Bags / Pallets)",
         'ratio_loose_ok': "Exact (Verified Loose / Remainders)",
         'ratio_loose_miss': "Estimated (Missing Box Data)",
         'sec_queue_title': "📊 Average Workload by Picking Type (Queue)",
@@ -136,7 +136,6 @@ TEXTS = {
 
 def t(key): return TEXTS[st.session_state.lang][key]
 
-# SKRYTÝ PŘEKLADAČ MATERIÁLŮ (Match Key) - řeší problém excelových nul bez toho, aby změnil vzhled původního čísla
 def get_match_key(val):
     v = str(val).strip().upper()
     if '.' in v and v.replace('.', '').isdigit():
@@ -171,7 +170,6 @@ def main():
                 else: 
                     temp_df = pd.read_excel(file, dtype=str)
                 
-                # Detekce souborů
                 if 'Delivery' in temp_df.columns and 'Act.qty (dest)' in temp_df.columns: 
                     df_pick = temp_df
                 elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns: 
@@ -186,25 +184,27 @@ def main():
             st.error(t('err_pick'))
             return
 
-        # 1. PŘÍPRAVA PICK REPORTU (ZACHOVÁNÍ PŮVODNÍCH ČÍSEL)
         df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
-        df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key) # Skrytý klíč pro propojování
+        df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key)
         
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
 
         # Propojení s TOs details a rozdělení dle Queue
-        if df_queue is not None:
-            if 'SD Document' in df_queue.columns:
-                q_map = df_queue.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
-                df_pick['Queue'] = df_pick['Delivery'].map(q_map)
+        if df_queue is not None and 'SD Document' in df_queue.columns:
+            q_map = df_queue.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
+            df_pick['Queue'] = df_pick['Delivery'].map(q_map)
+            
+            # ❗ VYŘAZENÍ FRONT CLEARANCE Z CELÉ ANALÝZY ❗
+            df_pick = df_pick[df_pick['Queue'].astype(str).str.upper() != 'CLEARANCE'].copy()
 
         df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
+        
+        # POUZE ZAZNAMENÁME ZAKÁZKY S "X", UŽ JE NEMAŽEME Z CELÉHO DF
         zakazky_s_x = df_pick[df_pick['Removal of total SU'] == 'X']['Delivery'].unique()
-        df_pick = df_pick[~df_pick['Delivery'].isin(zakazky_s_x)].copy()
-        st.info(t('info_clean').format(len(zakazky_s_x)))
+        if len(zakazky_s_x) > 0:
+            st.info(t('info_clean').format(len(zakazky_s_x)))
 
-        # 2. NAČTENÍ RUČNÍCH BALENÍ
         manual_boxes = {}
         if df_manual is not None and not df_manual.empty:
             c_mat, c_pkg = df_manual.columns[0], df_manual.columns[1]
@@ -212,7 +212,7 @@ def main():
                 mat_raw = str(row[c_mat]).strip()
                 if pd.isna(mat_raw) or mat_raw.upper() in ['NAN', 'NONE', '']: continue
                 
-                mat_key = get_match_key(mat_raw) # Přeložíme přes skrytý klíč!
+                mat_key = get_match_key(mat_raw)
                 pkg = str(row[c_pkg]).strip()
                 
                 nums = re.findall(r'(\d+)\s*ks|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
@@ -226,7 +226,6 @@ def main():
                     
             if manual_boxes: st.success(t('info_manual').format(len(manual_boxes)))
 
-        # 3. NAČTENÍ MARM
         box_dict, weight_dict, dim_dict = {}, {}, {}
         if df_marm is not None:
             df_marm['Match_Key'] = df_marm['Material'].apply(get_match_key)
@@ -257,28 +256,30 @@ def main():
             df_st['Max_Dim_CM'] = df_st[['L', 'W', 'H']].max(axis=1) 
             dim_dict = df_st.groupby('Match_Key')['Max_Dim_CM'].first().to_dict()
 
-        # Připojení dat přes MATCH KEY! (takže originální Material column zůstane nenarušen)
         df_pick['Box_Sizes_List'] = df_pick['Match_Key'].apply(lambda m: manual_boxes.get(m, box_dict.get(m, [])))
         df_pick['Piece_Weight_KG'] = df_pick['Match_Key'].map(weight_dict).fillna(0)
         df_pick['Piece_Max_Dim_CM'] = df_pick['Match_Key'].map(dim_dict).fillna(0)
 
-        # Postranní panel
         st.sidebar.header(t('sidebar_title'))
         limit_vahy = st.sidebar.number_input(t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5)
         limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0)
         kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=3, step=1)
         
         st.sidebar.divider()
-        unique_materials = sorted(df_pick['Material'].unique().tolist()) # Pro dropdown bereme ty hezké z SAPu!
+        unique_materials = sorted(df_pick['Material'].unique().tolist())
         excluded_materials = st.sidebar.multiselect(t('exclude_label'), options=unique_materials, default=[])
         if excluded_materials: df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
         # ==========================================
-        # 4. VÝPOČET POHYBŮ S ROZPADEM
+        # 4. VÝPOČET POHYBŮ S ROZPADEM NA 3 ZDROJE A CELOU PALETU
         # ==========================================
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
             if qty <= 0: return 0, 0, 0, 0
+            
+            # NOVINKA: Pokud se bere celá manipulační jednotka (paleta), je to 1 fyzický pohyb!
+            if str(row.get('Removal of total SU', '')).strip().upper() == 'X':
+                return 1, 1, 0, 0 # Započítá se do "Přesně (Krabice/Palety)"
             
             pohyby_box, pohyby_loose_ok, pohyby_loose_miss = 0, 0, 0
             zbytek = qty
@@ -304,7 +305,7 @@ def main():
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
         # ==========================================
-        # ZOBRAZENÍ POMĚRU A QUEUE
+        # ZOBRAZENÍ POMĚRU (SPOLEHLIVOSTI DAT)
         # ==========================================
         total_pohyby = df_pick['Pohyby_Rukou'].sum()
         total_box = df_pick['Pohyby_Box'].sum()
@@ -325,7 +326,9 @@ def main():
             col_r2.metric(t('ratio_loose_ok'), f"{pct_ok:.1f} %", f"{total_loose_ok:,.0f} pohybů")
             col_r3.metric(t('ratio_loose_miss'), f"{pct_miss:.1f} %", f"{total_loose_miss:,.0f} pohybů", delta_color="inverse")
 
-        # SEKCE: QUEUE (Pokud je TO's_details nahrán)
+        # ==========================================
+        # NOVINKA: SEKCE QUEUE
+        # ==========================================
         queue_summary = None
         if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any():
             st.divider()
@@ -408,6 +411,10 @@ def main():
             pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'), pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
             vaha_zakazky=('Celkova_Vaha_KG', 'sum'), max_rozmer=('Piece_Max_Dim_CM', 'first')
         )
+        
+        # ZDE VYLOUČÍME ZAKÁZKY "X" POUZE ZE SEKCE 1 MATERIÁL
+        grouped_orders = grouped_orders[~grouped_orders.index.isin(zakazky_s_x)]
+        
         filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(is_valid_cert))]
 
         st.divider()
@@ -438,7 +445,6 @@ def main():
             })
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
-            # Export nové Queue sekce do vlastního listu
             if queue_summary is not None:
                 queue_summary.to_excel(writer, index=False, sheet_name='Analyza_Queue')
                 
