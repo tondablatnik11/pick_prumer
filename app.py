@@ -22,6 +22,7 @@ TEXTS = {
         'upload_help': "Nahrajte Pick report, MARM report, TO details (Queue) a volitelně i ruční ověření balení.",
         'loading': "Zpracovávám logiku hierarchie balení a propojuji s Queue...",
         'err_pick': "Nepodařilo se najít Pick report (chybí sloupec 'Delivery' nebo 'Act.qty (dest)').",
+        'info_users': "💡 Z výpočtů bylo vyloučeno **{} řádků** potvrzených systémovými administrátory (UIDJ5089, UIH25501).",
         'info_clean': "💡 Detekováno **{} zakázek** s odběrem celé palety ('X'). Byly ponechány v datech jako 1 pohyb, ale jsou vyloučeny ze spodní 'Analýzy paletových zakázek'.",
         'info_manual': "✅ Načteno ruční ověření balení pro **{} materiálů**. (Priorita před MARM)",
         'sidebar_title': "⚙️ Fyzické limity pickera",
@@ -49,6 +50,8 @@ TEXTS = {
         'q_col_box': "Prům. krabice/pytlíky",
         'q_col_ok': "Prům. ověřené volné",
         'q_col_miss': "Prům. chybí balení",
+        'sec_queue_top_title': "🏆 TOP 100 materiálů podle Queue",
+        'q_select': "Zobrazit TOP 100 pro Queue:",
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
         'm_orders': "Počet zakázek",
         'm_qty': "Prům. kusů / zakázku",
@@ -64,7 +67,7 @@ TEXTS = {
         'col_wgt': "Hmotnost (kg)",
         'col_max_dim': "Rozměr (cm)",
         'col_cert': "Certifikát",
-        'sec2_title': "🏆 TOP 100 fyzicky nejnáročnějších materiálů (dle hmatů)",
+        'sec1_top_title': "🏆 TOP 100 materiálů pro paletové zakázky (1 materiál bez X)",
         'col_lines': "Řádky (Návštěvy)",
         'col_box': "Hierarchie balení",
         'val_loose': "Volné kusy",
@@ -81,6 +84,7 @@ TEXTS = {
         'upload_help': "Upload Pick report, MARM report, TO details (Queue), and optional Manual Override file.",
         'loading': "Processing packaging hierarchy and Queue mapping...",
         'err_pick': "Pick report missing (no 'Delivery' or 'Act.qty (dest)' column).",
+        'info_users': "💡 Excluded **{} lines** confirmed by system administrators (UIDJ5089, UIH25501).",
         'info_clean': "💡 Detected **{} full SU ('X') orders**. They are calculated as 1 move but excluded from the 'Pallet Orders' section.",
         'info_manual': "✅ Loaded manual packaging for **{} materials**. (Overrides MARM)",
         'sidebar_title': "⚙️ Picker's Physical Limits",
@@ -108,6 +112,8 @@ TEXTS = {
         'q_col_box': "Avg Boxes/Bags",
         'q_col_ok': "Avg Verified Loose",
         'q_col_miss': "Avg Missing Box",
+        'sec_queue_top_title': "🏆 TOP 100 Materials by Queue",
+        'q_select': "Show TOP 100 for Queue:",
         'sec1_title': "🎯 Single-Material Pallet Orders",
         'm_orders': "Orders",
         'm_qty': "Avg Pcs / Order",
@@ -123,7 +129,7 @@ TEXTS = {
         'col_wgt': "Weight (kg)",
         'col_max_dim': "Max Dim (cm)",
         'col_cert': "Certificate",
-        'sec2_title': "🏆 TOP 100 Most Demanding Materials (by movements)",
+        'sec1_top_title': "🏆 TOP 100 Materials for Pallet Orders (Single Material, No 'X')",
         'col_lines': "Lines (Visits)",
         'col_box': "Packaging Hierarchy",
         'val_loose': "Loose",
@@ -141,6 +147,64 @@ def get_match_key(val):
     if '.' in v and v.replace('.', '').isdigit():
         return v.rstrip('0').rstrip('.')
     return v
+
+# Helper funkce pro vytvoření TOP 100 tabulky z libovolného DataFrame
+def create_top_100_df(df_subset):
+    if df_subset is None or df_subset.empty:
+        return pd.DataFrame()
+    agg = df_subset.groupby('Material').agg(
+        pocet_picku=('Material', 'count'),
+        celkove_mnozstvi=('Qty', 'sum'),
+        celkem_pohybu=('Pohyby_Rukou', 'sum'),
+        pohyby_box=('Pohyby_Box', 'sum'),
+        pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
+        pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
+        celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
+        Box_Sizes_List=('Box_Sizes_List', 'first')
+    ).reset_index()
+
+    agg['velikost_kartonu'] = agg['Box_Sizes_List'].apply(
+        lambda b: " + ".join([f"{x}ks" for x in b]) if b and b != [1] else t('val_loose'))
+
+    agg.rename(columns={
+        'Material': t('col_mat'),
+        'pocet_picku': t('col_lines'),
+        'velikost_kartonu': t('col_box'),
+        'celkem_pohybu': t('col_mov'),
+        'pohyby_box': t('col_mov_box'),
+        'pohyby_loose_ok': t('col_mov_loose_ok'),
+        'pohyby_loose_miss': t('col_mov_loose_miss'),
+        'celkove_mnozstvi': t('col_qty'),
+        'celkova_natacena_vaha': t('col_wgt')
+    }, inplace=True)
+
+    top = agg.sort_values(by=t('col_mov'), ascending=False).head(100)
+    return top[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
+
+# Helper funkce pro přidání grafu do Excelu
+def add_excel_chart(writer, sheet_name, df_top):
+    workbook = writer.book
+    worksheet = writer.sheets[sheet_name]
+    chart = BarChart()
+    chart.type = "col"
+    chart.style = 10
+    chart.title = "Zátěž materiálů dle fyzických pohybů"
+    chart.y_axis.title = t('col_mov')
+    chart.x_axis.title = t('col_mat')
+    chart.width = 25
+    chart.height = 12
+    
+    col_mat_idx = list(df_top.columns).index(t('col_mat')) + 1
+    col_mov_idx = list(df_top.columns).index(t('col_mov')) + 1
+    
+    data = Reference(worksheet, min_col=col_mov_idx, min_row=1, max_row=len(df_top)+1)
+    cats = Reference(worksheet, min_col=col_mat_idx, min_row=2, max_row=len(df_top)+1)
+    
+    chart.add_data(data, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.legend = None 
+    worksheet.add_chart(chart, "K2")
+
 
 def main():
     col_spacer, col_lang = st.columns([8, 1])
@@ -184,8 +248,20 @@ def main():
             st.error(t('err_pick'))
             return
 
+        # ZACHOVÁNÍ PŮVODNÍCH ČÍSEL
         df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
         df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key)
+        
+        # ❗ VYŘAZENÍ SYSTÉMOVÝCH ADMINISTRÁTORŮ UIDJ5089, UIH25501 ❗
+        users_to_remove = ['UIDJ5089', 'UIH25501']
+        mask_admins = pd.Series(False, index=df_pick.index)
+        for col in df_pick.columns:
+            mask_admins = mask_admins | df_pick[col].isin(users_to_remove)
+            
+        num_removed_admins = mask_admins.sum()
+        if num_removed_admins > 0:
+            df_pick = df_pick[~mask_admins].copy()
+            st.info(t('info_users').format(num_removed_admins))
         
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
@@ -195,12 +271,13 @@ def main():
             q_map = df_queue.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
             df_pick['Queue'] = df_pick['Delivery'].map(q_map)
             
-            # ❗ VYŘAZENÍ FRONT CLEARANCE Z CELÉ ANALÝZY ❗
+            # ❗ VYŘAZENÍ FRONT CLEARANCE ❗
             df_pick = df_pick[df_pick['Queue'].astype(str).str.upper() != 'CLEARANCE'].copy()
+        else:
+            df_pick['Queue'] = 'N/A'
 
         df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
         
-        # POUZE ZAZNAMENÁME ZAKÁZKY S "X", UŽ JE NEMAŽEME Z CELÉHO DF
         zakazky_s_x = df_pick[df_pick['Removal of total SU'] == 'X']['Delivery'].unique()
         if len(zakazky_s_x) > 0:
             st.info(t('info_clean').format(len(zakazky_s_x)))
@@ -271,15 +348,14 @@ def main():
         if excluded_materials: df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
         # ==========================================
-        # 4. VÝPOČET POHYBŮ S ROZPADEM NA 3 ZDROJE A CELOU PALETU
+        # 4. VÝPOČET POHYBŮ S ROZPADEM
         # ==========================================
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
             if qty <= 0: return 0, 0, 0, 0
             
-            # NOVINKA: Pokud se bere celá manipulační jednotka (paleta), je to 1 fyzický pohyb!
             if str(row.get('Removal of total SU', '')).strip().upper() == 'X':
-                return 1, 1, 0, 0 # Započítá se do "Přesně (Krabice/Palety)"
+                return 1, 1, 0, 0
             
             pohyby_box, pohyby_loose_ok, pohyby_loose_miss = 0, 0, 0
             zbytek = qty
@@ -327,10 +403,13 @@ def main():
             col_r3.metric(t('ratio_loose_miss'), f"{pct_miss:.1f} %", f"{total_loose_miss:,.0f} pohybů", delta_color="inverse")
 
         # ==========================================
-        # NOVINKA: SEKCE QUEUE
+        # QUEUE PRŮMĚRY A JEJICH TOP 100
         # ==========================================
         queue_summary = None
-        if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any():
+        top_100_queue = pd.DataFrame() # Pro uložení do excelu
+        selected_queue = None
+        
+        if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any() and df_pick['Queue'].nunique() > 1:
             st.divider()
             st.subheader(t('sec_queue_title'))
             
@@ -357,45 +436,28 @@ def main():
             ]
             
             st.dataframe(queue_summary.style.format({
-                t('q_col_pcs'): "{:.1f}", 
-                t('q_col_moves'): "{:.1f}",
-                t('q_col_box'): "{:.1f}",
-                t('q_col_ok'): "{:.1f}",
-                t('q_col_miss'): "{:.1f}"
+                t('q_col_pcs'): "{:.1f}", t('q_col_moves'): "{:.1f}",
+                t('q_col_box'): "{:.1f}", t('q_col_ok'): "{:.1f}", t('q_col_miss'): "{:.1f}"
             }), use_container_width=True, hide_index=True)
 
+            # TOP 100 PRO SPECIFICKOU QUEUE
+            st.markdown(f"#### {t('sec_queue_top_title')}")
+            available_queues = sorted(df_pick['Queue'].dropna().unique().tolist())
+            selected_queue = st.selectbox(t('q_select'), options=available_queues)
+            
+            df_queue_subset = df_pick[df_pick['Queue'] == selected_queue]
+            top_100_queue = create_top_100_df(df_queue_subset)
+            
+            if not top_100_queue.empty:
+                col_q1, col_q2 = st.columns([1.5, 1])
+                with col_q1:
+                    st.dataframe(top_100_queue.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
+                with col_q2:
+                    st.bar_chart(top_100_queue.set_index(t('col_mat'))[t('col_mov')])
+
         # ==========================================
-        # ZAKÁZKY A TOP 100
+        # ZAKÁZKY (1 MATERIÁL BEZ 'X') A JEJICH TOP 100
         # ==========================================
-        all_materials_agg = df_pick.groupby('Material').agg(
-            pocet_picku=('Material', 'count'),
-            celkove_mnozstvi=('Qty', 'sum'),
-            celkem_pohybu=('Pohyby_Rukou', 'sum'),
-            pohyby_box=('Pohyby_Box', 'sum'),
-            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
-            pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
-            celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
-            Box_Sizes_List=('Box_Sizes_List', 'first')
-        ).reset_index()
-
-        all_materials_agg['velikost_kartonu'] = all_materials_agg['Box_Sizes_List'].apply(
-            lambda b: " + ".join([f"{x}ks" for x in b]) if b and b != [1] else t('val_loose'))
-
-        all_materials_agg.rename(columns={
-            'Material': t('col_mat'),
-            'pocet_picku': t('col_lines'),
-            'velikost_kartonu': t('col_box'),
-            'celkem_pohybu': t('col_mov'),
-            'pohyby_box': t('col_mov_box'),
-            'pohyby_loose_ok': t('col_mov_loose_ok'),
-            'pohyby_loose_miss': t('col_mov_loose_miss'),
-            'celkove_mnozstvi': t('col_qty'),
-            'celkova_natacena_vaha': t('col_wgt')
-        }, inplace=True)
-
-        top_100 = all_materials_agg.sort_values(by=t('col_mov'), ascending=False).head(100)
-        top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
-
         def is_valid_cert(certs):
             valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
             if len(valid_certs) == 0: return False
@@ -412,9 +474,8 @@ def main():
             vaha_zakazky=('Celkova_Vaha_KG', 'sum'), max_rozmer=('Piece_Max_Dim_CM', 'first')
         )
         
-        # ZDE VYLOUČÍME ZAKÁZKY "X" POUZE ZE SEKCE 1 MATERIÁL
+        # ZDE VYLOUČÍME ZAKÁZKY "X"
         grouped_orders = grouped_orders[~grouped_orders.index.isin(zakazky_s_x)]
-        
         filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(is_valid_cert))]
 
         st.divider()
@@ -431,12 +492,26 @@ def main():
                 display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
                 display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
                 st.dataframe(display_df, use_container_width=True)
+
+            # TOP 100 PRO ZAKÁZKY S 1 MATERIÁLEM (VYLOUČENY 'X')
+            st.markdown(f"#### {t('sec1_top_title')}")
+            df_single_mat_subset = df_pick[df_pick['Delivery'].isin(filtered_orders.index)]
+            top_100_single = create_top_100_df(df_single_mat_subset)
+            
+            if not top_100_single.empty:
+                col_s1, col_s2 = st.columns([1.5, 1])
+                with col_s1:
+                    st.dataframe(top_100_single.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
+                with col_s2:
+                    st.bar_chart(top_100_single.set_index(t('col_mat'))[t('col_mov')])
         else:
             st.warning(t('no_orders'))
+            top_100_single = pd.DataFrame()
 
         # ==========================================
         # EXPORT DO EXCELU 
         # ==========================================
+        st.divider()
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             metodika_df = pd.DataFrame({
@@ -448,50 +523,34 @@ def main():
             if queue_summary is not None:
                 queue_summary.to_excel(writer, index=False, sheet_name='Analyza_Queue')
                 
-            zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
-            zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
-            zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek')
+            if not top_100_queue.empty:
+                # Název listu je zkrácen na 31 znaků pro Excel limit
+                sheet_q = f'TOP100_Queue_{str(selected_queue)[:15]}'
+                top_100_queue.to_excel(writer, index=False, sheet_name=sheet_q)
+                add_excel_chart(writer, sheet_q, top_100_queue)
 
-            top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materialy')
-            
-            workbook = writer.book
-            worksheet = writer.sheets['TOP_100_Materialy']
-            chart = BarChart()
-            chart.type = "col"
-            chart.style = 10
-            chart.title = "Zátěž materiálů dle fyzických pohybů"
-            chart.y_axis.title = t('col_mov')
-            chart.x_axis.title = t('col_mat')
-            chart.width = 25
-            chart.height = 12
-            
-            col_mat_idx = list(top_100.columns).index(t('col_mat')) + 1
-            col_mov_idx = list(top_100.columns).index(t('col_mov')) + 1
-            data = Reference(worksheet, min_col=col_mov_idx, min_row=1, max_row=len(top_100)+1)
-            cats = Reference(worksheet, min_col=col_mat_idx, min_row=2, max_row=len(top_100)+1)
-            chart.add_data(data, titles_from_data=True)
-            chart.set_categories(cats)
-            chart.legend = None 
-            worksheet.add_chart(chart, "K2")
+            if len(filtered_orders) > 0:
+                zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
+                zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
+                zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek_1_Mat')
 
-            all_materials_export = all_materials_agg.drop(columns=['Box_Sizes_List'])
-            all_materials_export.to_excel(writer, index=False, sheet_name='Vsechna_Data_Materialu')
+                if not top_100_single.empty:
+                    sheet_s = 'TOP100_1_Material'
+                    top_100_single.to_excel(writer, index=False, sheet_name=sheet_s)
+                    add_excel_chart(writer, sheet_s, top_100_single)
 
-        st.divider()
-        st.subheader(t('sec2_title'))
-        
+            # Necháme data všech materiálů ze skladu jako referenci
+            all_materials_export = create_top_100_df(df_pick).drop(columns=[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')], errors='ignore') 
+            # Spíše vygenerujeme surová data všech materiálů
+            all_agg_raw = df_pick.groupby('Material').agg(celkem_pohybu=('Pohyby_Rukou', 'sum'), total_qty=('Qty', 'sum')).reset_index()
+            all_agg_raw.to_excel(writer, index=False, sheet_name='Data_Vsechny_Materialy_ve_Skladu')
+
         st.download_button(
             label=t('btn_download'),
             data=buffer.getvalue(),
             file_name="Analýza_Ergonomie_skladu.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-        col_top1, col_top2 = st.columns([1.5, 1])
-        with col_top1:
-            st.dataframe(top_100.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
-        with col_top2:
-            st.bar_chart(top_100.set_index(t('col_mat'))[t('col_mov')])
 
         # ==========================================
         # PROHLÍŽEČ MASTER DAT
