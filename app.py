@@ -42,14 +42,19 @@ TEXTS = {
         'ratio_master': "Přesně (Krabice / Palety)",
         'ratio_loose_ok': "Přesně (Ověřené volné / Zbytky)",
         'ratio_loose_miss': "Odhad (Chybí data o balení)",
+        'exp_missing_data': "🔍 Zobrazit materiály s nejvíce chybějícími daty (Odhady)",
         'sec_queue_title': "📊 Průměrná náročnost dle typu pickování (Queue)",
         'q_col_queue': "Typ Pickování (Queue)",
-        'q_col_orders': "Počet TO / Zakázek",
+        'q_col_to': "Počet TO",
+        'q_col_orders': "Počet Zakázek",
         'q_col_pcs': "Prům. kusů",
         'q_col_moves': "Prům. celkem pohybů",
         'q_col_box': "Prům. krabice/pytlíky",
+        'q_pct_box': "% Krabice",
         'q_col_ok': "Prům. ověřené volné",
+        'q_pct_ok': "% Ověřené",
         'q_col_miss': "Prům. chybí balení",
+        'q_pct_miss': "% Chybí",
         'sec_queue_top_title': "🏆 TOP 100 materiálů podle Queue",
         'q_select': "Zobrazit TOP 100 pro Queue:",
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
@@ -104,14 +109,19 @@ TEXTS = {
         'ratio_master': "Exact (Boxes / Bags / Pallets)",
         'ratio_loose_ok': "Exact (Verified Loose / Remainders)",
         'ratio_loose_miss': "Estimated (Missing Box Data)",
+        'exp_missing_data': "🔍 Show materials with most missing data (Estimates)",
         'sec_queue_title': "📊 Average Workload by Picking Type (Queue)",
         'q_col_queue': "Picking Type (Queue)",
-        'q_col_orders': "TOs / Orders Count",
+        'q_col_to': "TOs Count",
+        'q_col_orders': "Orders Count",
         'q_col_pcs': "Avg Pieces",
         'q_col_moves': "Avg Total Moves",
         'q_col_box': "Avg Boxes/Bags",
+        'q_pct_box': "% Boxes",
         'q_col_ok': "Avg Verified Loose",
+        'q_pct_ok': "% Verified",
         'q_col_miss': "Avg Missing Box",
+        'q_pct_miss': "% Missing",
         'sec_queue_top_title': "🏆 TOP 100 Materials by Queue",
         'q_select': "Show TOP 100 for Queue:",
         'sec1_title': "🎯 Single-Material Pallet Orders",
@@ -245,11 +255,10 @@ def main():
             st.error(t('err_pick'))
             return
 
-        # ZACHOVÁNÍ PŮVODNÍCH ČÍSEL
         df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
         df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key)
         
-        # ❗ VYŘAZENÍ SYSTÉMOVÝCH ADMINISTRÁTORŮ UIDJ5089, UIH25501 ❗
+        # VYŘAZENÍ ADMINŮ
         users_to_remove = ['UIDJ5089', 'UIH25501']
         mask_admins = pd.Series(False, index=df_pick.index)
         for col in df_pick.columns:
@@ -263,13 +272,11 @@ def main():
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
 
-        # ❗ PÁROVÁNÍ NA ÚROVNI TO (Transfer Order) ❗
-        queue_count_col = 'Delivery' # Výchozí záložní varianta
+        # PÁROVÁNÍ QUEUE PŘES TO (pokud je dostupný)
         if df_queue is not None:
             if 'Transfer Order Number' in df_pick.columns and 'Transfer Order Number' in df_queue.columns:
                 q_map = df_queue.dropna(subset=['Transfer Order Number', 'Queue']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Queue'].to_dict()
                 df_pick['Queue'] = df_pick['Transfer Order Number'].map(q_map)
-                queue_count_col = 'Transfer Order Number'
             elif 'SD Document' in df_queue.columns:
                 q_map = df_queue.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
                 df_pick['Queue'] = df_pick['Delivery'].map(q_map)
@@ -297,7 +304,6 @@ def main():
                 mat_key = get_match_key(mat_raw)
                 pkg = str(row[c_pkg]).strip()
                 
-                # Zlepšený regex i s kartony a boxy pro jistotu
                 nums = re.findall(r'(\d+)\s*(?:ks|kus|pcs)|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice|karton|box)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
                 ext = sorted(list(set([int(g) for m in nums for g in m if g])), reverse=True)
                 
@@ -386,6 +392,33 @@ def main():
         df_pick[['Pohyby_Rukou', 'Pohyby_Box', 'Pohyby_Loose_OK', 'Pohyby_Loose_Miss']] = df_pick.apply(spocitej_pohyby_detail, axis=1, result_type='expand')
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
+        # Předpřipravení souhrnu všech materiálů, abychom z něj mohli brát ty s chybějícími daty
+        all_materials_agg = df_pick.groupby('Material').agg(
+            pocet_picku=('Material', 'count'),
+            celkove_mnozstvi=('Qty', 'sum'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'),
+            pohyby_box=('Pohyby_Box', 'sum'),
+            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
+            pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
+            celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
+            Box_Sizes_List=('Box_Sizes_List', 'first')
+        ).reset_index()
+
+        all_materials_agg['velikost_kartonu'] = all_materials_agg['Box_Sizes_List'].apply(
+            lambda b: " + ".join([f"{x}ks" for x in b]) if b and b != [1] else t('val_loose'))
+
+        all_materials_agg.rename(columns={
+            'Material': t('col_mat'),
+            'pocet_picku': t('col_lines'),
+            'velikost_kartonu': t('col_box'),
+            'celkem_pohybu': t('col_mov'),
+            'pohyby_box': t('col_mov_box'),
+            'pohyby_loose_ok': t('col_mov_loose_ok'),
+            'pohyby_loose_miss': t('col_mov_loose_miss'),
+            'celkove_mnozstvi': t('col_qty'),
+            'celkova_natacena_vaha': t('col_wgt')
+        }, inplace=True)
+
         # ==========================================
         # ZOBRAZENÍ POMĚRU (SPOLEHLIVOSTI DAT)
         # ==========================================
@@ -408,6 +441,16 @@ def main():
             col_r2.metric(t('ratio_loose_ok'), f"{pct_ok:.1f} %", f"{total_loose_ok:,.0f} pohybů")
             col_r3.metric(t('ratio_loose_miss'), f"{pct_miss:.1f} %", f"{total_loose_miss:,.0f} pohybů", delta_color="inverse")
 
+            # ROZBALOVACÍ OKNO NA CHYBĚJÍCÍ DATA
+            with st.expander(t('exp_missing_data')):
+                miss_df = all_materials_agg[all_materials_agg[t('col_mov_loose_miss')] > 0].sort_values(by=t('col_mov_loose_miss'), ascending=False).head(100)
+                if not miss_df.empty:
+                    st.dataframe(miss_df[[t('col_mat'), t('col_lines'), t('col_qty'), t('col_mov_loose_miss'), t('col_mov')]].style.format({
+                        t('col_mov_loose_miss'): "{:.0f}", t('col_mov'): "{:.0f}"
+                    }), use_container_width=True, hide_index=True)
+                else:
+                    st.success("Všechna data o baleních jsou k dispozici, žádné odhady!")
+
         # ==========================================
         # QUEUE PRŮMĚRY A JEJICH GRAF/TOP 100
         # ==========================================
@@ -419,8 +462,10 @@ def main():
             st.divider()
             st.subheader(t('sec_queue_title'))
             
-            # Shlukování přes TO (Transfer Order Number), nebo záložně přes Delivery
-            queue_agg = df_pick.groupby([queue_count_col, 'Queue']).agg(
+            # Správné skupinování přes TO (pokud je) i přes Delivery
+            group_cols = ['Transfer Order Number', 'Delivery', 'Queue'] if 'Transfer Order Number' in df_pick.columns else ['Delivery', 'Queue']
+            
+            queue_agg = df_pick.groupby(group_cols).agg(
                 celkem_pohybu=('Pohyby_Rukou', 'sum'),
                 pohyby_box=('Pohyby_Box', 'sum'),
                 pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
@@ -428,32 +473,49 @@ def main():
                 total_qty=('Qty', 'sum')
             ).reset_index()
             
-            queue_summary = queue_agg.groupby('Queue').agg(
-                pocet_zakazek=(queue_count_col, 'nunique'),
+            q_sum = queue_agg.groupby('Queue').agg(
+                pocet_zakazek=('Delivery', 'nunique'),
                 prum_kusu=('total_qty', 'mean'),
                 prum_pohybu=('celkem_pohybu', 'mean'),
                 prum_box=('pohyby_box', 'mean'),
                 prum_ok=('pohyby_loose_ok', 'mean'),
                 prum_miss=('pohyby_loose_miss', 'mean')
-            ).reset_index().sort_values('prum_pohybu', ascending=False)
+            )
             
-            queue_summary.columns = [
-                t('q_col_queue'), t('q_col_orders'), t('q_col_pcs'), 
-                t('q_col_moves'), t('q_col_box'), t('q_col_ok'), t('q_col_miss')
+            if 'Transfer Order Number' in queue_agg.columns:
+                q_sum['pocet_TO'] = queue_agg.groupby('Queue')['Transfer Order Number'].nunique()
+            else:
+                q_sum['pocet_TO'] = q_sum['pocet_zakazek']
+                
+            q_sum = q_sum.reset_index().sort_values('prum_pohybu', ascending=False)
+            
+            # Výpočet procent
+            q_sum['pct_box'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_box'] / q_sum['prum_pohybu']) * 100, 0)
+            q_sum['pct_ok'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_ok'] / q_sum['prum_pohybu']) * 100, 0)
+            q_sum['pct_miss'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_miss'] / q_sum['prum_pohybu']) * 100, 0)
+            
+            display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
+            
+            display_q.columns = [
+                t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_pcs'), 
+                t('q_col_moves'), t('q_col_box'), t('q_pct_box'), 
+                t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')
             ]
             
-            # NOVINKA: Sloupcové zobrazení Průměrů + Grafu vedle sebe
-            col_qt1, col_qt2 = st.columns([1.5, 1])
+            col_qt1, col_qt2 = st.columns([2, 1])
             with col_qt1:
-                st.dataframe(queue_summary.style.format({
+                st.dataframe(display_q.style.format({
                     t('q_col_pcs'): "{:.1f}", t('q_col_moves'): "{:.1f}",
-                    t('q_col_box'): "{:.1f}", t('q_col_ok'): "{:.1f}", t('q_col_miss'): "{:.1f}"
+                    t('q_col_box'): "{:.1f}", t('q_pct_box'): "{:.1f} %",
+                    t('q_col_ok'): "{:.1f}", t('q_pct_ok'): "{:.1f} %",
+                    t('q_col_miss'): "{:.1f}", t('q_pct_miss'): "{:.1f} %"
                 }), use_container_width=True, hide_index=True)
             with col_qt2:
-                # Vizualizace obrovského rozdílu ve fyzické náročnosti mezi frontami
-                st.bar_chart(queue_summary.set_index(t('q_col_queue'))[t('q_col_moves')])
+                # OPRAVENÝ GRAF: předávám čistá numerická data
+                chart_df = q_sum[['Queue', 'prum_pohybu']].set_index('Queue')
+                chart_df.columns = [t('q_col_moves')]
+                st.bar_chart(chart_df)
 
-            # TOP 100 PRO SPECIFICKOU QUEUE
             st.markdown(f"#### {t('sec_queue_top_title')}")
             available_queues = sorted(df_pick['Queue'].dropna().unique().tolist())
             selected_queue = st.selectbox(t('q_select'), options=available_queues)
@@ -532,7 +594,9 @@ def main():
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
             if queue_summary is not None:
-                queue_summary.to_excel(writer, index=False, sheet_name='Analyza_Queue')
+                # Upravený formát pro Excel export
+                q_sum_export = display_q.copy()
+                q_sum_export.to_excel(writer, index=False, sheet_name='Analyza_Queue')
                 
             if not top_100_queue.empty:
                 sheet_q = f'TOP100_Queue_{str(selected_queue)[:15]}'
