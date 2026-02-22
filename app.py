@@ -129,13 +129,6 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
 
 def t(key): return TEXTS[st.session_state.lang][key]
 
-# Chytry cistic formatovani z Excelu (odstrani nechtene .00 na konci cisel materialu)
-def normalize_mat(mat):
-    m = str(mat).strip()
-    if '.' in m and m.replace('.', '').isdigit():
-        return m.rstrip('0').rstrip('.')
-    return m
-
 def main():
     col_spacer, col_lang = st.columns([8, 1])
     with col_lang:
@@ -176,8 +169,8 @@ def main():
             st.error(t('err_pick'))
             return
 
-        # Normalizace Material IDs pro spravne parovani!
-        df_pick['Material'] = df_pick['Material'].apply(normalize_mat)
+        # ZACHOVÁNÍ PŮVODNÍCH ČÍSEL - pouze odstraníme případné mezery z Excelu
+        df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
         
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
@@ -190,11 +183,13 @@ def main():
         manual_boxes = {}
         if df_manual is not None and not df_manual.empty:
             c_mat, c_pkg = df_manual.columns[0], df_manual.columns[1]
-            df_manual[c_mat] = df_manual[c_mat].apply(normalize_mat) # Ošetření ručního Excelu
+            df_manual[c_mat] = df_manual[c_mat].astype(str).str.strip() # ZACHOVÁNÍ PŮVODNÍCH ČÍSEL
+            
             for _, row in df_manual.iterrows():
                 mat, pkg = str(row[c_mat]).strip(), str(row[c_pkg]).strip()
                 if pd.isna(mat) or mat in ['nan', 'None']: continue
                 
+                # Inteligentní čtečka balení (pytlíky, krabice, role, K-..)
                 nums = re.findall(r'(\d+)\s*ks|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
                 ext = sorted(list(set([int(g) for m in nums for g in m if g])), reverse=True)
                 
@@ -208,7 +203,8 @@ def main():
 
         box_dict, weight_dict, dim_dict = {}, {}, {}
         if df_marm is not None:
-            df_marm['Material'] = df_marm['Material'].apply(normalize_mat) # Ošetření MARMu
+            df_marm['Material'] = df_marm['Material'].astype(str).str.strip() # ZACHOVÁNÍ PŮVODNÍCH ČÍSEL
+            
             df_boxes = df_marm[df_marm['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])]
             df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
             
@@ -337,21 +333,69 @@ def main():
         top_100 = all_materials_agg.sort_values(by=t('col_mov'), ascending=False).head(100)
         top_100 = top_100[[t('col_mat'), t('col_lines'), t('col_box'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
 
+        def is_valid_cert(certs):
+            valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
+            if len(valid_certs) == 0: return False
+            for c in valid_certs:
+                if c.startswith('460'): return False
+            return True
+
+        grouped_orders = df_pick.groupby('Delivery').agg(
+            num_materials=('Material', 'nunique'), material=('Material', 'first'),
+            certs=('Certificate Number', lambda x: x.dropna().unique().tolist()),
+            total_qty=('Qty', 'sum'), num_positions=('Source Storage Bin', 'nunique'),
+            celkem_pohybu=('Pohyby_Rukou', 'sum'), pohyby_box=('Pohyby_Box', 'sum'), 
+            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'), pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
+            vaha_zakazky=('Celkova_Vaha_KG', 'sum'), max_rozmer=('Piece_Max_Dim_CM', 'first')
+        )
+        filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(is_valid_cert))]
+
         st.divider()
-        st.subheader(t('sec2_title'))
+        st.subheader(t('sec1_title'))
         
-        # Tlačítko pro stažení nad TOP 100 tabulkou
+        if len(filtered_orders) > 0:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(t('m_orders'), f"{len(filtered_orders):,}".replace(',', ' '))
+            c2.metric(t('m_qty'), f"{filtered_orders['total_qty'].mean():.1f}")
+            c3.metric(t('m_pos'), f"{filtered_orders['num_positions'].mean():.2f}")
+            c4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
+
+            with st.expander(t('exp_detail_title')):
+                display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
+                display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
+                st.dataframe(display_df, use_container_width=True)
+        else:
+            st.warning(t('no_orders'))
+
+        # ==========================================
+        # EXPORT DO EXCELU 
+        # ==========================================
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            
             metodika_df = pd.DataFrame({
-                "Téma": ["O reportu", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
-                "Popis": ["Report odstraňuje iluzi 'kusů' a odhaduje pohyby rukou.", f"{limit_vahy} kg", f"{limit_rozmeru} cm", f"{kusy_na_hmat} ks"]
+                "Téma": ["O reportu", "Krok 1", "Krok 2", "Krok 3", "Nastavení (Hranice váhy)", "Nastavení (Hranice rozměru)", "Nastavení (Max do hrsti)"],
+                "Popis": [
+                    "Tento report odstraňuje iluzi 'naskenovaných kusů' a odhaduje skutečný počet fyzických pohybů pickera.",
+                    "Odpočet celých kartonů (balení definované v MARM nebo ručním souboru). 1 karton = 1 pohyb.",
+                    "Zbytek kusů, které jsou příliš těžké nebo velké, se bere po jednom. 1 kus = 1 pohyb.",
+                    "Zbylé lehké a drobné kusy se berou do hrsti (dle nastavení).",
+                    f"{limit_vahy} kg",
+                    f"{limit_rozmeru} cm",
+                    f"{kusy_na_hmat} ks"
+                ]
             })
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
+            
+            zakazky_export = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
+            zakazky_export.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
+            zakazky_export.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek')
+
             top_100.to_excel(writer, index=False, sheet_name='TOP_100_Materialy')
             
             workbook = writer.book
             worksheet = writer.sheets['TOP_100_Materialy']
+            
             chart = BarChart()
             chart.type = "col"
             chart.style = 10
@@ -363,16 +407,21 @@ def main():
             
             col_mat_idx = list(top_100.columns).index(t('col_mat')) + 1
             col_mov_idx = list(top_100.columns).index(t('col_mov')) + 1
+            
             data = Reference(worksheet, min_col=col_mov_idx, min_row=1, max_row=len(top_100)+1)
             cats = Reference(worksheet, min_col=col_mat_idx, min_row=2, max_row=len(top_100)+1)
+            
             chart.add_data(data, titles_from_data=True)
             chart.set_categories(cats)
             chart.legend = None 
             worksheet.add_chart(chart, "K2")
-            
+
             all_materials_export = all_materials_agg.drop(columns=['Box_Sizes_List'])
             all_materials_export.to_excel(writer, index=False, sheet_name='Vsechna_Data_Materialu')
 
+        st.divider()
+        st.subheader(t('sec2_title'))
+        
         st.download_button(
             label=t('btn_download'),
             data=buffer.getvalue(),
@@ -387,7 +436,7 @@ def main():
             st.bar_chart(top_100.set_index(t('col_mat'))[t('col_mov')])
 
         # ==========================================
-        # NOVINKA: PROHLÍŽEČ MASTER DAT
+        # PROHLÍŽEČ MASTER DAT
         # ==========================================
         st.divider()
         st.subheader(t('sec3_title'))
@@ -397,7 +446,6 @@ def main():
         if mat_search:
             st.markdown(f"#### Detail pro materiál: **`{mat_search}`**")
             
-            # Info z ručního excelu
             if mat_search in manual_boxes:
                 if manual_boxes[mat_search] == [1]:
                     st.success("✅ **Ruční ověření:** Nastaveno natvrdo jako **Volné kusy (1 ks)**.")
@@ -406,17 +454,14 @@ def main():
             else:
                 st.info("ℹ️ Tento materiál nemá zadané žádné ruční ověření.")
                 
-            # Info o přepočtech z aplikované logiky
             c_info1, c_info2 = st.columns(2)
             c_info1.metric("Váha 1 kusu (z MARM)", f"{weight_dict.get(mat_search, 0):.3f} kg")
             c_info2.metric("Nejdelší rozměr (z MARM)", f"{dim_dict.get(mat_search, 0):.1f} cm")
             
-            # Tabulka čistého MARM reportu
             if df_marm is not None:
                 st.write("**Surová data z MARM reportu (Varianty balení):**")
                 marm_detail = df_marm[df_marm['Material'] == mat_search]
                 if not marm_detail.empty:
-                    # Zobrazíme všechny dostupné sloupce pro tento materiál
                     cols_to_show = ['Alternative Unit of Measure', 'Numerator', 'Denominator', 'Gross Weight', 'Unit of Weight', 'Length', 'Width', 'Height', 'Unit of Dimension']
                     available_cols = [c for c in cols_to_show if c in marm_detail.columns]
                     st.dataframe(marm_detail[available_cols], hide_index=True, use_container_width=True)
