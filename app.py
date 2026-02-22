@@ -43,7 +43,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         """,
         'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat)",
         'ratio_desc': "Tento přehled ukazuje, jak kvalitní data jsme měli pro výpočet. Pohyby se dělí na přesně identifikované krabice, na přirozené zbytky/ověřené volné kusy a na hmaty, které jsme museli kompletně dopočítat jen přes váhu/rozměr, protože v MARMu chyběla krabice.",
-        'ratio_master': "Přesně (Krabice)",
+        'ratio_master': "Přesně (Krabice / Pytlíky)",
         'ratio_loose_ok': "Přesně (Ověřené volné / Zbytky)",
         'ratio_loose_miss': "Odhad (Chybí data o balení)",
         'sec1_title': "🎯 Analýza paletových zakázek (Obsahují pouze 1 materiál)",
@@ -55,7 +55,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_mat': "Materiál",
         'col_qty': "Kusů celkem",
         'col_mov': "Celkem pohybů",
-        'col_mov_box': "Pohyby (Krabice)",
+        'col_mov_box': "Pohyby (Krabice/Pytlíky)",
         'col_mov_loose_ok': "Pohyby (Ověřené volné)",
         'col_mov_loose_miss': "Pohyby (Chybí balení)",
         'col_wgt': "Hmotnost (kg)",
@@ -96,7 +96,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         """,
         'sec_ratio': "🎯 Calculation Source (Data Reliability)",
         'ratio_desc': "Shows how movements were calculated: exact full boxes, exact natural loose remainders/verified loose, and loose pieces estimated purely by weight because carton data was missing in SAP.",
-        'ratio_master': "Exact (Boxes)",
+        'ratio_master': "Exact (Boxes / Bags)",
         'ratio_loose_ok': "Exact (Verified Loose / Remainders)",
         'ratio_loose_miss': "Estimated (Missing Box Data)",
         'sec1_title': "🎯 Single-Material Pallet Orders",
@@ -108,7 +108,7 @@ Ke každému pickovacímu řádku přistupuje aplikace jako živý člověk:
         'col_mat': "Material",
         'col_qty': "Total Pieces",
         'col_mov': "Total Movements",
-        'col_mov_box': "Moves (Boxes)",
+        'col_mov_box': "Moves (Boxes / Bags)",
         'col_mov_loose_ok': "Moves (Verified Loose)",
         'col_mov_loose_miss': "Moves (Missing Box)",
         'col_wgt': "Weight (kg)",
@@ -179,10 +179,19 @@ def main():
             for _, row in df_manual.iterrows():
                 mat, pkg = str(row[c_mat]).strip(), str(row[c_pkg]).strip()
                 if pd.isna(mat) or mat in ['nan', 'None']: continue
-                nums = re.findall(r'(\d+)\s*ks|\bK-(\d+)\b', pkg, flags=re.IGNORECASE)
-                ext = sorted([int(g) for m in nums for g in m if g], reverse=True)
-                if not ext and 'po kusech' in pkg.lower(): ext = [1]
-                if ext: manual_boxes[mat] = ext
+                
+                # Zlepšený Regulární výraz pro detekci pytlíků a dalších obalů
+                nums = re.findall(r'(\d+)\s*ks|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
+                
+                # Odstraníme duplicity a seřadíme od největšího balení po nejmenší
+                ext = sorted(list(set([int(g) for m in nums for g in m if g])), reverse=True)
+                
+                if not ext and 'po kusech' in pkg.lower(): 
+                    ext = [1]
+                    
+                if ext: 
+                    manual_boxes[mat] = ext
+                    
             if manual_boxes: st.success(t('info_manual').format(len(manual_boxes)))
 
         box_dict, weight_dict, dim_dict = {}, {}, {}
@@ -248,7 +257,6 @@ def main():
                 
             # 2. Zpracování zbytku / volných kusů
             if zbytek > 0:
-                # Spočítáme pohyby pro volné kusy
                 if row['Piece_Weight_KG'] >= limit_vahy or row['Piece_Max_Dim_CM'] >= limit_rozmeru:
                     pohyby = zbytek
                 else:
@@ -256,10 +264,8 @@ def main():
                 
                 # Rozhodnutí, kam pohyby zařadit:
                 if len(boxes) == 0:
-                    # Žádná data o krabici v MARM ani ručně -> "Chybí data"
                     pohyby_loose_miss += pohyby
                 else:
-                    # Měli jsme krabici a tohle je zbytek, NEBO ručně zadáno "po kusech" (kde je len(boxes) > 0, protože jsme nastavili [1])
                     pohyby_loose_ok += pohyby
                     
             return pohyby_box + pohyby_loose_ok + pohyby_loose_miss, pohyby_box, pohyby_loose_ok, pohyby_loose_miss
