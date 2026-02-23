@@ -17,7 +17,7 @@ TEXTS = {
     'cs': {
         'switch_lang': "🇬🇧 Switch to English",
         'title': "📈 Analýza Skladové Zátěže a Ergonomie Pickování",
-        'desc': "Nástroj pro měření **skutečné fyzické náročnosti** vychystávání. Tato aplikace modeluje **skutečný počet pohybů rukou (hmatů)** a **zvednutou hmotnost** u regálu.",
+        'desc': "Nástroj pro měření **skutečné fyzické náročnosti** vychystávání pro přesnou cenotvorbu a ergonomii.",
         'upload_title': "📁 Nahrání vstupních dat",
         'upload_help': "Nahrajte Pick report, MARM report, TO details (Queue) a volitelně i ruční ověření balení.",
         'loading': "Zpracovávám logiku hierarchie balení a propojuji s Queue...",
@@ -30,15 +30,8 @@ TEXTS = {
         'dim_label': "Hranice rozměru pro 1 ks (cm)",
         'hmat_label': "Max ks lehkých dílů do hrsti",
         'exclude_label': "Vyloučit materiály z výpočtů:",
-        'sec_methodology': "📖 Pro management: Jak a proč se počítají pohyby?",
-        'methodology_text': """
-### ⚙️ Krok za krokem: Jak funguje algoritmus?
-1. **Zjistí balení (Kartony):** Nejdříve se podívá do ručních ověření, poté do MARMu. Zjistí, zda se materiál nachází v krabici (např. 50 ks). Pokud picker vychystává 120 ks, započítá odběr **2 celých krabic = 2 pohyby**. Zbyde 20 volných kusů. (Pokud picker odebírá celou paletu, započítá se to jako 1 pohyb celkem).
-2. **Vyhodnotí váhu a rozměr zbytku:** U zbylých 20 ks zkontroluje limity (např. >2 kg nebo >15 cm). Pokud kus limit překračuje, musí se brát po jednom kusu = **20 pohybů**.
-3. **Drobné díly do hrsti:** Pokud jsou kusy naopak lehké a malé, předpokládáme nabrání do hrsti (např. 3 ks na hmat) = **7 pohybů**.
-        """,
-        'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat)",
-        'ratio_desc': "Tento přehled ukazuje, jak kvalitní data jsme měli pro výpočet. Pohyby se dělí na přesně identifikované krabice, na přirozené zbytky/ověřené volné kusy a na odhady.",
+        'sec_ratio': "🎯 Zdroj výpočtů (Spolehlivost dat pro celý sklad)",
+        'ratio_desc': "Jak kvalitní data jsme měli pro výpočet napříč všemi procesy.",
         'ratio_master': "Přesně (Krabice / Palety)",
         'ratio_loose_ok': "Přesně (Ověřené volné / Zbytky)",
         'ratio_loose_miss': "Odhad (Chybí data o balení)",
@@ -47,8 +40,9 @@ TEXTS = {
         'q_col_queue': "Typ Pickování (Queue)",
         'q_col_to': "Počet TO",
         'q_col_orders': "Počet Zakázek",
+        'q_col_loc': "Prům. lokací",
         'q_col_pcs': "Prům. kusů",
-        'q_col_moves': "Prům. celkem pohybů",
+        'q_col_moves': "Prům. pohybů na TO",
         'q_col_box': "Prům. krabice/pytlíky",
         'q_pct_box': "% Krabice",
         'q_col_ok': "Prům. ověřené volné",
@@ -84,28 +78,21 @@ TEXTS = {
     'en': {
         'switch_lang': "🇨🇿 Přepnout do češtiny",
         'title': "📈 Warehouse Workload & Ergonomics Analysis",
-        'desc': "A tool to measure the **true physical demand** of picking. This app merges SAP (MARM) and manual verifications to model **actual hand movements** and **lifted weight**.",
+        'desc': "A tool to measure the **true physical demand** of picking for pricing and ergonomics.",
         'upload_title': "📁 Upload Input Data",
         'upload_help': "Upload Pick report, MARM report, TO details (Queue), and optional Manual Override file.",
         'loading': "Processing packaging hierarchy and Queue mapping...",
         'err_pick': "Pick report missing (no 'Delivery' or 'Act.qty (dest)' column).",
         'info_users': "💡 Excluded **{} lines** confirmed by system administrators (UIDJ5089, UIH25501).",
-        'info_clean': "💡 Detected **{} full SU ('X') orders**. They are calculated as 1 move but excluded from the 'Pallet Orders' section.",
+        'info_clean': "💡 Detected **{} full SU ('X') orders**. Calculated as 1 move but excluded from 'Pallet Orders' section.",
         'info_manual': "✅ Loaded manual packaging for **{} unique materials** (out of {} rows). (Overrides MARM)",
         'sidebar_title': "⚙️ Picker's Physical Limits",
         'weight_label': "Weight limit for 1-by-1 pick (kg)",
         'dim_label': "Dimension limit for 1-by-1 (cm)",
         'hmat_label': "Max pieces per grab (light parts)",
         'exclude_label': "Exclude materials:",
-        'sec_methodology': "📖 For Management: Why and how do we calculate movements?",
-        'methodology_text': """
-### ⚙️ Step by Step: How does the algorithm work?
-1. **Identify Cartons:** Checks manual data, then MARM. If a box holds 50 pcs and order is 120 pcs -> **2 full boxes = 2 movements**. 20 pcs remain.
-2. **Evaluate Heavy/Large:** If the remaining 20 pcs exceed the weight/dimension limit, they are picked individually = **20 movements**.
-3. **Small Handfuls:** If light/small, we assume grabbing (e.g. 3 pcs/grab) = **7 movements**.
-        """,
-        'sec_ratio': "🎯 Calculation Source (Data Reliability)",
-        'ratio_desc': "Shows how movements were calculated: exact full boxes, exact verified loose, and missing box data.",
+        'sec_ratio': "🎯 Calculation Source (Data Reliability Overall)",
+        'ratio_desc': "Shows how movements were calculated across all warehouse processes.",
         'ratio_master': "Exact (Boxes / Bags / Pallets)",
         'ratio_loose_ok': "Exact (Verified Loose / Remainders)",
         'ratio_loose_miss': "Estimated (Missing Box Data)",
@@ -114,8 +101,9 @@ TEXTS = {
         'q_col_queue': "Picking Type (Queue)",
         'q_col_to': "TOs Count",
         'q_col_orders': "Orders Count",
+        'q_col_loc': "Avg Locs",
         'q_col_pcs': "Avg Pieces",
-        'q_col_moves': "Avg Total Moves",
+        'q_col_moves': "Avg Moves per TO",
         'q_col_box': "Avg Boxes/Bags",
         'q_pct_box': "% Boxes",
         'q_col_ok': "Avg Verified Loose",
@@ -222,10 +210,6 @@ def main():
 
     st.title(t('title'))
     st.markdown(t('desc'))
-    
-    with st.expander(t('sec_methodology'), expanded=False):
-        st.markdown(t('methodology_text'))
-    st.divider()
 
     with st.container():
         st.subheader(t('upload_title'))
@@ -271,20 +255,47 @@ def main():
         
         df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
         df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
+        df_pick['Source Storage Bin'] = df_pick.get('Source Storage Bin', df_pick.get('Storage Bin', ''))
 
-        # PÁROVÁNÍ QUEUE PŘES TO (pokud je dostupný)
+        # PÁROVÁNÍ QUEUE A MĚSÍCE
+        queue_count_col = 'Delivery'
         if df_queue is not None:
             if 'Transfer Order Number' in df_pick.columns and 'Transfer Order Number' in df_queue.columns:
                 q_map = df_queue.dropna(subset=['Transfer Order Number', 'Queue']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Queue'].to_dict()
                 df_pick['Queue'] = df_pick['Transfer Order Number'].map(q_map)
+                queue_count_col = 'Transfer Order Number'
+                
+                # Získání data
+                if 'Confirmation Date' in df_queue.columns:
+                    d_map = df_queue.dropna(subset=['Transfer Order Number', 'Confirmation Date']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Confirmation Date'].to_dict()
+                    df_pick['Date'] = df_pick['Transfer Order Number'].map(d_map)
+                elif 'Creation Date' in df_queue.columns:
+                    d_map = df_queue.dropna(subset=['Transfer Order Number', 'Creation Date']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Creation Date'].to_dict()
+                    df_pick['Date'] = df_pick['Transfer Order Number'].map(d_map)
+
             elif 'SD Document' in df_queue.columns:
                 q_map = df_queue.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
                 df_pick['Queue'] = df_pick['Delivery'].map(q_map)
+                
+                if 'Confirmation Date' in df_queue.columns:
+                    d_map = df_queue.dropna(subset=['SD Document', 'Confirmation Date']).drop_duplicates('SD Document').set_index('SD Document')['Confirmation Date'].to_dict()
+                    df_pick['Date'] = df_pick['Delivery'].map(d_map)
+                elif 'Creation Date' in df_queue.columns:
+                    d_map = df_queue.dropna(subset=['SD Document', 'Creation Date']).drop_duplicates('SD Document').set_index('SD Document')['Creation Date'].to_dict()
+                    df_pick['Date'] = df_pick['Delivery'].map(d_map)
                 
             if 'Queue' in df_pick.columns:
                 df_pick = df_pick[df_pick['Queue'].astype(str).str.upper() != 'CLEARANCE'].copy()
         else:
             df_pick['Queue'] = 'N/A'
+            df_pick['Date'] = np.nan
+
+        # Vytvoření sloupce Měsíc
+        if 'Date' in df_pick.columns:
+            df_pick['Month'] = pd.to_datetime(df_pick['Date'], errors='coerce').dt.to_period('M').astype(str)
+            df_pick['Month'] = df_pick['Month'].replace('NaT', 'Neznámé')
+        else:
+            df_pick['Month'] = 'Neznámé'
 
         df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
         
@@ -360,7 +371,7 @@ def main():
         if excluded_materials: df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
         # ==========================================
-        # 4. VÝPOČET POHYBŮ S ROZPADEM
+        # VÝPOČET POHYBŮ S ROZPADEM
         # ==========================================
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
@@ -392,35 +403,8 @@ def main():
         df_pick[['Pohyby_Rukou', 'Pohyby_Box', 'Pohyby_Loose_OK', 'Pohyby_Loose_Miss']] = df_pick.apply(spocitej_pohyby_detail, axis=1, result_type='expand')
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        # Předpřipravení souhrnu všech materiálů, abychom z něj mohli brát ty s chybějícími daty
-        all_materials_agg = df_pick.groupby('Material').agg(
-            pocet_picku=('Material', 'count'),
-            celkove_mnozstvi=('Qty', 'sum'),
-            celkem_pohybu=('Pohyby_Rukou', 'sum'),
-            pohyby_box=('Pohyby_Box', 'sum'),
-            pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
-            pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
-            celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum'),
-            Box_Sizes_List=('Box_Sizes_List', 'first')
-        ).reset_index()
-
-        all_materials_agg['velikost_kartonu'] = all_materials_agg['Box_Sizes_List'].apply(
-            lambda b: " + ".join([f"{x}ks" for x in b]) if b and b != [1] else t('val_loose'))
-
-        all_materials_agg.rename(columns={
-            'Material': t('col_mat'),
-            'pocet_picku': t('col_lines'),
-            'velikost_kartonu': t('col_box'),
-            'celkem_pohybu': t('col_mov'),
-            'pohyby_box': t('col_mov_box'),
-            'pohyby_loose_ok': t('col_mov_loose_ok'),
-            'pohyby_loose_miss': t('col_mov_loose_miss'),
-            'celkove_mnozstvi': t('col_qty'),
-            'celkova_natacena_vaha': t('col_wgt')
-        }, inplace=True)
-
         # ==========================================
-        # ZOBRAZENÍ POMĚRU (SPOLEHLIVOSTI DAT)
+        # ZOBRAZENÍ POMĚRU (SPOLEHLIVOSTI DAT - CELKOVÁ)
         # ==========================================
         total_pohyby = df_pick['Pohyby_Rukou'].sum()
         total_box = df_pick['Pohyby_Box'].sum()
@@ -441,18 +425,20 @@ def main():
             col_r2.metric(t('ratio_loose_ok'), f"{pct_ok:.1f} %", f"{total_loose_ok:,.0f} pohybů")
             col_r3.metric(t('ratio_loose_miss'), f"{pct_miss:.1f} %", f"{total_loose_miss:,.0f} pohybů", delta_color="inverse")
 
-            # ROZBALOVACÍ OKNO NA CHYBĚJÍCÍ DATA
             with st.expander(t('exp_missing_data')):
-                miss_df = all_materials_agg[all_materials_agg[t('col_mov_loose_miss')] > 0].sort_values(by=t('col_mov_loose_miss'), ascending=False).head(100)
+                all_mat_agg = df_pick.groupby('Material').agg(
+                    col_lines=('Material', 'count'), col_qty=('Qty', 'sum'),
+                    col_mov_loose_miss=('Pohyby_Loose_Miss', 'sum'), col_mov=('Pohyby_Rukou', 'sum')
+                ).reset_index()
+                all_mat_agg.columns = [t('col_mat'), t('col_lines'), t('col_qty'), t('col_mov_loose_miss'), t('col_mov')]
+                miss_df = all_mat_agg[all_mat_agg[t('col_mov_loose_miss')] > 0].sort_values(by=t('col_mov_loose_miss'), ascending=False).head(100)
                 if not miss_df.empty:
-                    st.dataframe(miss_df[[t('col_mat'), t('col_lines'), t('col_qty'), t('col_mov_loose_miss'), t('col_mov')]].style.format({
-                        t('col_mov_loose_miss'): "{:.0f}", t('col_mov'): "{:.0f}"
-                    }), use_container_width=True, hide_index=True)
+                    st.dataframe(miss_df.style.format({t('col_mov_loose_miss'): "{:.0f}", t('col_mov'): "{:.0f}"}), use_container_width=True, hide_index=True)
                 else:
                     st.success("Všechna data o baleních jsou k dispozici, žádné odhady!")
 
         # ==========================================
-        # QUEUE PRŮMĚRY A JEJICH GRAF/TOP 100
+        # QUEUE PRŮMĚRY (S FILTREM MĚSÍCŮ A ROZPADEM SINGLE/MIX)
         # ==========================================
         queue_summary = None
         top_100_queue = pd.DataFrame()
@@ -462,76 +448,117 @@ def main():
             st.divider()
             st.subheader(t('sec_queue_title'))
             
-            # Správné skupinování přes TO (pokud je) i přes Delivery
-            group_cols = ['Transfer Order Number', 'Delivery', 'Queue'] if 'Transfer Order Number' in df_pick.columns else ['Delivery', 'Queue']
-            
-            queue_agg = df_pick.groupby(group_cols).agg(
-                celkem_pohybu=('Pohyby_Rukou', 'sum'),
-                pohyby_box=('Pohyby_Box', 'sum'),
-                pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
-                pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
-                total_qty=('Qty', 'sum')
-            ).reset_index()
-            
-            q_sum = queue_agg.groupby('Queue').agg(
-                pocet_zakazek=('Delivery', 'nunique'),
-                prum_kusu=('total_qty', 'mean'),
-                prum_pohybu=('celkem_pohybu', 'mean'),
-                prum_box=('pohyby_box', 'mean'),
-                prum_ok=('pohyby_loose_ok', 'mean'),
-                prum_miss=('pohyby_loose_miss', 'mean')
-            )
-            
-            if 'Transfer Order Number' in queue_agg.columns:
-                q_sum['pocet_TO'] = queue_agg.groupby('Queue')['Transfer Order Number'].nunique()
-            else:
-                q_sum['pocet_TO'] = q_sum['pocet_zakazek']
+            # FILTR MĚSÍCŮ
+            available_months = ['Všechny měsíce'] + sorted([m for m in df_pick['Month'].unique() if m != 'Neznámé'])
+            if 'Neznámé' in df_pick['Month'].unique():
+                available_months.append('Neznámé')
                 
-            q_sum = q_sum.reset_index().sort_values('prum_pohybu', ascending=False)
+            sel_month = st.selectbox("📅 Filtrovat podle měsíce:", options=available_months)
             
-            # Výpočet procent
-            q_sum['pct_box'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_box'] / q_sum['prum_pohybu']) * 100, 0)
-            q_sum['pct_ok'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_ok'] / q_sum['prum_pohybu']) * 100, 0)
-            q_sum['pct_miss'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_miss'] / q_sum['prum_pohybu']) * 100, 0)
-            
-            display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
-            
-            display_q.columns = [
-                t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_pcs'), 
-                t('q_col_moves'), t('q_col_box'), t('q_pct_box'), 
-                t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')
-            ]
-            
-            col_qt1, col_qt2 = st.columns([2, 1])
-            with col_qt1:
-                st.dataframe(display_q.style.format({
-                    t('q_col_pcs'): "{:.1f}", t('q_col_moves'): "{:.1f}",
-                    t('q_col_box'): "{:.1f}", t('q_pct_box'): "{:.1f} %",
-                    t('q_col_ok'): "{:.1f}", t('q_pct_ok'): "{:.1f} %",
-                    t('q_col_miss'): "{:.1f}", t('q_pct_miss'): "{:.1f} %"
-                }), use_container_width=True, hide_index=True)
-            with col_qt2:
-                # OPRAVENÝ GRAF: předávám čistá numerická data
-                chart_df = q_sum[['Queue', 'prum_pohybu']].set_index('Queue')
-                chart_df.columns = [t('q_col_moves')]
-                st.bar_chart(chart_df)
+            df_q_filter = df_pick.copy()
+            if sel_month != 'Všechny měsíce':
+                df_q_filter = df_q_filter[df_q_filter['Month'] == sel_month]
 
-            st.markdown(f"#### {t('sec_queue_top_title')}")
-            available_queues = sorted(df_pick['Queue'].dropna().unique().tolist())
-            selected_queue = st.selectbox(t('q_select'), options=available_queues)
-            
-            df_queue_subset = df_pick[df_pick['Queue'] == selected_queue]
-            top_100_queue = create_top_100_df(df_queue_subset)
-            
-            if not top_100_queue.empty:
-                col_q1, col_q2 = st.columns([1.5, 1])
-                with col_q1:
-                    st.dataframe(top_100_queue.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
-                with col_q2:
-                    st.bar_chart(top_100_queue.set_index(t('col_mat'))[t('col_mov')])
+            if not df_q_filter.empty:
+                group_cols = [queue_count_col, 'Queue']
+                
+                queue_agg_raw = df_q_filter.groupby(group_cols).agg(
+                    celkem_pohybu=('Pohyby_Rukou', 'sum'),
+                    pohyby_box=('Pohyby_Box', 'sum'),
+                    pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'),
+                    pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
+                    total_qty=('Qty', 'sum'),
+                    num_materials=('Material', 'nunique'),
+                    pocet_lokaci=('Source Storage Bin', 'nunique'),
+                    delivery=('Delivery', 'first')
+                ).reset_index()
+                
+                # ROZPAD PI_PL a PI_PL_OE NA SINGLE A MIX
+                def adjust_queue_name(row):
+                    q = str(row['Queue']).upper()
+                    if q in ['PI_PL', 'PI_PL_OE']:
+                        suffix = ' (Single)' if row['num_materials'] == 1 else ' (Mix)'
+                        return row['Queue'] + suffix
+                    return row['Queue']
+
+                totals_rows = queue_agg_raw[queue_agg_raw['Queue'].str.upper().isin(['PI_PL', 'PI_PL_OE'])].copy()
+                totals_rows['Queue'] = totals_rows['Queue'] + ' (Total)'
+                
+                queue_agg_raw['Queue'] = queue_agg_raw.apply(adjust_queue_name, axis=1)
+                queue_agg_final = pd.concat([queue_agg_raw, totals_rows], ignore_index=True)
+                
+                q_sum = queue_agg_final.groupby('Queue').agg(
+                    pocet_zakazek=('delivery', 'nunique'),
+                    prum_lokaci=('pocet_lokaci', 'mean'),
+                    prum_kusu=('total_qty', 'mean'),
+                    prum_pohybu=('celkem_pohybu', 'mean'),
+                    prum_box=('pohyby_box', 'mean'),
+                    prum_ok=('pohyby_loose_ok', 'mean'),
+                    prum_miss=('pohyby_loose_miss', 'mean')
+                )
+                
+                if queue_count_col == 'Transfer Order Number':
+                    q_sum['pocet_TO'] = queue_agg_final.groupby('Queue')[queue_count_col].nunique()
+                else:
+                    q_sum['pocet_TO'] = q_sum['pocet_zakazek']
+                    
+                q_sum = q_sum.reset_index().sort_values('prum_pohybu', ascending=False)
+                
+                q_sum['pct_box'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_box'] / q_sum['prum_pohybu']) * 100, 0)
+                q_sum['pct_ok'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_ok'] / q_sum['prum_pohybu']) * 100, 0)
+                q_sum['pct_miss'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum['prum_miss'] / q_sum['prum_pohybu']) * 100, 0)
+                
+                display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_lokaci', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
+                
+                display_q.columns = [
+                    t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), 
+                    t('q_col_moves'), t('q_col_box'), t('q_pct_box'), 
+                    t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')
+                ]
+                
+                col_qt1, col_qt2 = st.columns([2.5, 1])
+                with col_qt1:
+                    st.dataframe(display_q.style.format({
+                        t('q_col_loc'): "{:.1f}", t('q_col_pcs'): "{:.1f}", t('q_col_moves'): "{:.1f}",
+                        t('q_col_box'): "{:.1f}", t('q_pct_box'): "{:.1f} %",
+                        t('q_col_ok'): "{:.1f}", t('q_pct_ok'): "{:.1f} %",
+                        t('q_col_miss'): "{:.1f}", t('q_pct_miss'): "{:.1f} %"
+                    }), use_container_width=True, hide_index=True)
+                with col_qt2:
+                    chart_df = q_sum[['Queue', 'prum_pohybu']].set_index('Queue')
+                    chart_df.columns = [t('q_col_moves')]
+                    st.bar_chart(chart_df)
+
+                st.markdown(f"#### {t('sec_queue_top_title')}")
+                available_queues_disp = sorted(queue_agg_final['Queue'].dropna().unique().tolist())
+                selected_queue_disp = st.selectbox(t('q_select'), options=available_queues_disp)
+                
+                # Zpětné filtrování (pro Total se bere obojí, pro Single/Mix se filtruje přes num_materials)
+                if '(Total)' in selected_queue_disp:
+                    base_q = selected_queue_disp.replace(' (Total)', '')
+                    df_queue_subset = df_q_filter[df_q_filter['Queue'] == base_q]
+                elif '(Single)' in selected_queue_disp:
+                    base_q = selected_queue_disp.replace(' (Single)', '')
+                    del_single = queue_agg_raw[(queue_agg_raw['Queue'] == selected_queue_disp) & (queue_agg_raw['num_materials'] == 1)][queue_count_col].unique()
+                    df_queue_subset = df_q_filter[(df_q_filter['Queue'] == base_q) & (df_q_filter[queue_count_col].isin(del_single))]
+                elif '(Mix)' in selected_queue_disp:
+                    base_q = selected_queue_disp.replace(' (Mix)', '')
+                    del_mix = queue_agg_raw[(queue_agg_raw['Queue'] == selected_queue_disp) & (queue_agg_raw['num_materials'] > 1)][queue_count_col].unique()
+                    df_queue_subset = df_q_filter[(df_q_filter['Queue'] == base_q) & (df_q_filter[queue_count_col].isin(del_mix))]
+                else:
+                    df_queue_subset = df_q_filter[df_q_filter['Queue'] == selected_queue_disp]
+
+                top_100_queue = create_top_100_df(df_queue_subset)
+                
+                if not top_100_queue.empty:
+                    col_q1, col_q2 = st.columns([1.5, 1])
+                    with col_q1:
+                        st.dataframe(top_100_queue.style.format({t('col_wgt'): "{:.1f}", t('col_mov'): "{:.0f}", t('col_mov_box'): "{:.0f}", t('col_mov_loose_ok'): "{:.0f}", t('col_mov_loose_miss'): "{:.0f}"}), use_container_width=True, hide_index=True)
+                    with col_q2:
+                        st.bar_chart(top_100_queue.set_index(t('col_mat'))[t('col_mov')])
 
         # ==========================================
-        # ZAKÁZKY (1 MATERIÁL BEZ 'X') A JEJICH TOP 100
+        # ZAKÁZKY (1 MATERIÁL BEZ 'X') A JEJICH SPOLEHLIVOST
         # ==========================================
         def is_valid_cert(certs):
             valid_certs = [str(c).strip() for c in certs if pd.notna(c) and str(c).strip() not in ['nan', '']]
@@ -562,6 +589,15 @@ def main():
             c3.metric(t('m_pos'), f"{filtered_orders['num_positions'].mean():.2f}")
             c4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
 
+            # NOVINKA: SPOLEHLIVOST DAT JEN PRO PALETOVÉ ZAKÁZKY
+            tot_p_pal = filtered_orders['celkem_pohybu'].sum()
+            if tot_p_pal > 0:
+                st.markdown("**Spolehlivost dat čistě pro tyto paletové zakázky:**")
+                c_p1, c_p2, c_p3 = st.columns(3)
+                c_p1.metric(t('ratio_master'), f"{(filtered_orders['pohyby_box'].sum() / tot_p_pal * 100):.1f} %")
+                c_p2.metric(t('ratio_loose_ok'), f"{(filtered_orders['pohyby_loose_ok'].sum() / tot_p_pal * 100):.1f} %")
+                c_p3.metric(t('ratio_loose_miss'), f"{(filtered_orders['pohyby_loose_miss'].sum() / tot_p_pal * 100):.1f} %", delta_color="inverse")
+
             with st.expander(t('exp_detail_title')):
                 display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
                 display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
@@ -582,6 +618,54 @@ def main():
             top_100_single = pd.DataFrame()
 
         # ==========================================
+        # NAMÁTKOVÁ KONTROLA VÝPOČTŮ (PRO KLIENTA A AUDIT)
+        # ==========================================
+        st.divider()
+        st.subheader("🎲 Namátková kontrola výpočtů (Audit)")
+        st.write("Vygenerujte detailní matematický rozpad jednoho náhodného úkolu, abyste si mohli logiku ověřit ručně s kalkulačkou.")
+        
+        if st.button("Vybrat náhodný úkol (TO) k ověření"):
+            if len(df_pick) > 0:
+                random_to = df_pick[queue_count_col].dropna().sample(1).iloc[0]
+                st.session_state['random_to'] = random_to
+
+        if 'random_to' in st.session_state:
+            r_to = st.session_state['random_to']
+            st.markdown(f"#### Detail pro identifikátor: **`{r_to}`**")
+            to_data = df_pick[df_pick[queue_count_col] == r_to]
+            
+            for idx, row in to_data.iterrows():
+                mat = row['Material']
+                qty = row['Qty']
+                boxes = row['Box_Sizes_List']
+                w = row['Piece_Weight_KG']
+                d = row['Piece_Max_Dim_CM']
+                su = row.get('Removal of total SU', '')
+                
+                st.markdown(f"**Materiál:** `{mat}` | **Množství:** {qty} ks | **Balení v datech:** {boxes if boxes else 'Chybí'} | **Váha/ks:** {w:.3f} kg | **Max rozměr:** {d:.1f} cm")
+                
+                if su == 'X':
+                    st.info("➡️ *Odběr celé manipulační jednotky (palety) označen 'X' -> systém započítal přesně 1 pohyb.*")
+                else:
+                    zbytek = qty
+                    if boxes:
+                        for b in boxes:
+                            if b > 1 and zbytek >= b:
+                                m = zbytek // b
+                                st.info(f"➡️ Odebráno **{m} krabic** (po {b} ks) = **{m} pohybů**. (Zbylo {zbytek % b} ks)")
+                                zbytek = zbytek % b
+                    
+                    if zbytek > 0:
+                        if w >= limit_vahy or d >= limit_rozmeru:
+                            st.warning(f"➡️ Zbytek {zbytek} ks překračuje jeden z limitů ({w:.3f}kg, {d:.1f}cm). Musí se brát po jednom kuse -> **{zbytek} pohybů**.")
+                        else:
+                            hmaty = np.ceil(zbytek / kusy_na_hmat)
+                            st.success(f"➡️ Zbytek {zbytek} ks je drobný (splňuje limity). Bere se do hrsti (max {kusy_na_hmat} ks) -> **{hmaty} pohybů**.")
+                    
+                st.markdown(f"##### **Celkem započítáno pohybů pro tento řádek: {row['Pohyby_Rukou']}**")
+                st.write("---")
+
+        # ==========================================
         # EXPORT DO EXCELU 
         # ==========================================
         st.divider()
@@ -594,12 +678,10 @@ def main():
             metodika_df.to_excel(writer, index=False, sheet_name='Info_a_Metodika')
             
             if queue_summary is not None:
-                # Upravený formát pro Excel export
-                q_sum_export = display_q.copy()
-                q_sum_export.to_excel(writer, index=False, sheet_name='Analyza_Queue')
+                display_q.to_excel(writer, index=False, sheet_name='Analyza_Queue')
                 
             if not top_100_queue.empty:
-                sheet_q = f'TOP100_Queue_{str(selected_queue)[:15]}'
+                sheet_q = f'TOP100_Queue_{str(selected_queue_disp)[:15]}'
                 top_100_queue.to_excel(writer, index=False, sheet_name=sheet_q)
                 add_excel_chart(writer, sheet_q, top_100_queue)
 
