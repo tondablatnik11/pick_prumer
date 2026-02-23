@@ -38,7 +38,7 @@ TEXTS = {
         'switch_lang': "🇬🇧 Switch to English",
         'title': "📦 Skladová Analytika a Ergonomie",
         'desc': "Profesionální nástroj pro modelování skutečné fyzické zátěže pickování a validaci fakturačních procesů.",
-        'upload_title': "📁 Nahrání vstupních dat",
+        'upload_title': "📁 Nahrání vstupních dat (Klikněte pro sbalení/rozbalení)",
         'upload_help': "Nahrajte Pick report, MARM report, TO details (Queue) a volitelně i ruční ověření balení.",
         'info_users': "💡 Vyloučeno **{} systémových řádků** (UIDJ5089, UIH25501).",
         'info_clean': "💡 Detekováno **{} zakázek** s odběrem celé palety ('X'). (Započítán 1 pohyb).",
@@ -68,6 +68,7 @@ TEXTS = {
         'q_col_miss': "Prům. chybí",
         'q_pct_miss': "% Chybí",
         'sec_queue_top_title': "🏆 TOP 100 materiálů podle Queue",
+        'q_select': "Zobrazit TOP 100 pro Queue:",
         'sec1_title': "🎯 Analýza paletových zakázek (1 materiál)",
         'm_orders': "Počet zakázek",
         'm_qty': "Prům. kusů / zakázku",
@@ -90,13 +91,16 @@ TEXTS = {
         'tab_dashboard': "📊 Dashboard & Queue",
         'tab_pallets': "📦 Paletové zakázky",
         'tab_top': "🏆 TOP Materiály & Datová kvalita",
-        'tab_audit': "🔍 Nástroje & Audit"
+        'tab_audit': "🔍 Nástroje & Audit",
+        'col_lines': "Řádky",
+        'col_box': "Balení",
+        'val_loose': "Volné kusy"
     },
     'en': {
         'switch_lang': "🇨🇿 Přepnout do češtiny",
         'title': "📦 Warehouse Analytics & Ergonomics",
         'desc': "Professional tool for modeling true physical picking workload and validating billing processes.",
-        'upload_title': "📁 Upload Input Data",
+        'upload_title': "📁 Upload Input Data (Click to expand/collapse)",
         'upload_help': "Upload Pick report, MARM report, TO details (Queue), and optional Manual Override.",
         'info_users': "💡 Excluded **{} system lines** (UIDJ5089, UIH25501).",
         'info_clean': "💡 Detected **{} full SU ('X') orders**. (Calculated as 1 move).",
@@ -126,6 +130,7 @@ TEXTS = {
         'q_col_miss': "Avg Missing",
         'q_pct_miss': "% Missing",
         'sec_queue_top_title': "🏆 TOP 100 Materials by Queue",
+        'q_select': "Show TOP 100 for Queue:",
         'sec1_title': "🎯 Single-Material Pallet Orders",
         'm_orders': "Orders",
         'm_qty': "Avg Pcs / Order",
@@ -148,7 +153,10 @@ TEXTS = {
         'tab_dashboard': "📊 Dashboard & Queue",
         'tab_pallets': "📦 Pallet Orders",
         'tab_top': "🏆 TOP Materials & Data Quality",
-        'tab_audit': "🔍 Tools & Audit"
+        'tab_audit': "🔍 Tools & Audit",
+        'col_lines': "Lines",
+        'col_box': "Packaging",
+        'val_loose': "Loose"
     }
 }
 
@@ -170,13 +178,13 @@ def create_top_100_df(df_subset):
     ).reset_index()
 
     agg.rename(columns={
-        'Material': t('col_mat'), 'pocet_picku': 'Řádky',
+        'Material': t('col_mat'), 'pocet_picku': t('col_lines'),
         'celkem_pohybu': t('col_mov'), 'pohyby_box': t('col_mov_box'),
         'pohyby_loose_ok': t('col_mov_loose_ok'), 'pohyby_loose_miss': t('col_mov_loose_miss'),
         'celkove_mnozstvi': t('col_qty'), 'celkova_natacena_vaha': t('col_wgt')
     }, inplace=True)
 
-    return agg.sort_values(by=t('col_mov'), ascending=False).head(100)[[t('col_mat'), 'Řádky', t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
+    return agg.sort_values(by=t('col_mov'), ascending=False).head(100)[[t('col_mat'), t('col_lines'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
 
 def add_excel_chart(writer, sheet_name, df_top):
     worksheet = writer.sheets[sheet_name]
@@ -208,7 +216,8 @@ def main():
     limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0)
     kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=3, step=1)
     
-    with st.container():
+    # Rozbalovací menu pro nahrávání souborů (šetří místo)
+    with st.expander(t('upload_title'), expanded=True):
         uploaded_files = st.file_uploader(t('upload_help'), type=['csv', 'xlsx'], accept_multiple_files=True)
 
     if uploaded_files:
@@ -220,7 +229,7 @@ def main():
 
         status_text.markdown("**🔄 Načítání a čtení vstupních souborů (20 %)...**")
         progress_bar.progress(20)
-        time.sleep(0.3) # Jemné vizuální zpomalení pro uživatele
+        time.sleep(0.3)
 
         for file in uploaded_files:
             temp_df = pd.read_csv(file, dtype=str) if file.name.lower().endswith('.csv') else pd.read_excel(file, dtype=str)
@@ -352,7 +361,6 @@ def main():
         # ==========================================
         # 3. ZPRACOVÁNÍ VÝSLEDKŮ DO TABS
         # ==========================================
-        # Vytvoření TABS pro profesionální UX
         tab_dash, tab_pallets, tab_top, tab_audit = st.tabs([t('tab_dashboard'), t('tab_pallets'), t('tab_top'), t('tab_audit')])
 
         # Informační blok nahoře mimo taby (univerzální info)
@@ -455,6 +463,7 @@ def main():
         with tab_top:
             st.subheader(t('sec_queue_top_title'))
             if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any() and df_pick['Queue'].nunique() > 1 and not df_q_filter.empty:
+                # OPRAVA KEYERRORU ZDE - Použití t('q_select') funguje díky jeho znovupřidání do TEXTS dict nahoře.
                 selected_queue_disp = st.selectbox(t('q_select'), options=sorted(queue_agg_final['Queue'].dropna().unique().tolist()))
                 if '(Total)' in selected_queue_disp: df_queue_subset = df_q_filter[df_q_filter['Queue'] == selected_queue_disp.replace(' (Total)', '')]
                 elif '(Single)' in selected_queue_disp: df_queue_subset = df_q_filter[(df_q_filter['Queue'] == selected_queue_disp.replace(' (Single)', '')) & (df_q_filter[queue_count_col].isin(queue_agg_raw[(queue_agg_raw['Queue'] == selected_queue_disp) & (queue_agg_raw['num_materials'] == 1)][queue_count_col]))]
@@ -470,7 +479,7 @@ def main():
             st.divider()
             st.subheader(t('exp_missing_data').replace('🔍 ', ''))
             all_mat_agg = df_pick.groupby('Material').agg(lines=('Material', 'count'), qty=('Qty', 'sum'), miss=('Pohyby_Loose_Miss', 'sum'), mov=('Pohyby_Rukou', 'sum')).reset_index()
-            all_mat_agg.columns = [t('col_mat'), 'Řádky', t('col_qty'), t('col_mov_loose_miss'), t('col_mov')]
+            all_mat_agg.columns = [t('col_mat'), t('col_lines'), t('col_qty'), t('col_mov_loose_miss'), t('col_mov')]
             miss_df = all_mat_agg[all_mat_agg[t('col_mov_loose_miss')] > 0].sort_values(by=t('col_mov_loose_miss'), ascending=False).head(100)
             if not miss_df.empty: st.dataframe(miss_df.style.format({c: "{:.0f}" for c in [t('col_mov_loose_miss'), t('col_mov')]}), use_container_width=True, hide_index=True)
             else: st.success("Všechna data o baleních jsou k dispozici, žádné odhady!")
