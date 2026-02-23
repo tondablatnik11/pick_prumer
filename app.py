@@ -11,7 +11,6 @@ from openpyxl.chart import BarChart, Reference
 # ==========================================
 st.set_page_config(page_title="Skladová Analytika & Ergonomie", page_icon="📦", layout="wide")
 
-# Vylepšený profesionální design pomocí vlastního CSS (stínování metrik, úprava tabulek)
 st.markdown("""
     <style>
     div[data-testid="metric-container"] {
@@ -210,18 +209,15 @@ def main():
 
     st.divider()
 
-    # Postranní panel nastavení
     st.sidebar.header(t('sidebar_title'))
     limit_vahy = st.sidebar.number_input(t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5)
     limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0)
     kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=3, step=1)
     
-    # Rozbalovací menu pro nahrávání souborů (šetří místo)
     with st.expander(t('upload_title'), expanded=True):
         uploaded_files = st.file_uploader(t('upload_help'), type=['csv', 'xlsx'], accept_multiple_files=True)
 
     if uploaded_files:
-        # PŘÍPRAVA PROGRESS BARU
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -363,7 +359,6 @@ def main():
         # ==========================================
         tab_dash, tab_pallets, tab_top, tab_audit = st.tabs([t('tab_dashboard'), t('tab_pallets'), t('tab_top'), t('tab_audit')])
 
-        # Informační blok nahoře mimo taby (univerzální info)
         with st.container():
             col_i1, col_i2, col_i3 = st.columns(3)
             if num_removed_admins > 0: col_i1.info(t('info_users').format(num_removed_admins))
@@ -463,7 +458,6 @@ def main():
         with tab_top:
             st.subheader(t('sec_queue_top_title'))
             if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any() and df_pick['Queue'].nunique() > 1 and not df_q_filter.empty:
-                # OPRAVA KEYERRORU ZDE - Použití t('q_select') funguje díky jeho znovupřidání do TEXTS dict nahoře.
                 selected_queue_disp = st.selectbox(t('q_select'), options=sorted(queue_agg_final['Queue'].dropna().unique().tolist()))
                 if '(Total)' in selected_queue_disp: df_queue_subset = df_q_filter[df_q_filter['Queue'] == selected_queue_disp.replace(' (Total)', '')]
                 elif '(Single)' in selected_queue_disp: df_queue_subset = df_q_filter[(df_q_filter['Queue'] == selected_queue_disp.replace(' (Single)', '')) & (df_q_filter[queue_count_col].isin(queue_agg_raw[(queue_agg_raw['Queue'] == selected_queue_disp) & (queue_agg_raw['num_materials'] == 1)][queue_count_col]))]
@@ -486,33 +480,68 @@ def main():
 
         # === TAB 4: NÁSTROJE A AUDIT ===
         with tab_audit:
-            # Namátková kontrola
-            st.subheader("🎲 Namátková kontrola výpočtů (Audit logiky)")
-            st.write("Vygenerujte detailní matematický rozpad jednoho náhodného úkolu, abyste si mohli logiku ověřit ručně s klientem.")
-            if st.button("Vybrat náhodný úkol (TO) k ověření"):
-                if len(df_pick) > 0: st.session_state['random_to'] = df_pick[queue_count_col].dropna().sample(1).iloc[0]
+            # 5x Namátková kontrola pro každou Queue
+            st.subheader("🎲 Detailní Audit logiky (5 úkolů za každou frontu)")
+            st.write("Slouží pro obhajobu výpočtů s klientem. Vygeneruje až 5 náhodných úkolů z každé existující fronty s maximálním detailem.")
+            
+            if st.button("Vygenerovat auditní report (5 úkolů z každé fronty)", type="primary"):
+                if len(df_pick) > 0:
+                    audit_samples = {}
+                    # Vyfiltrujeme jen reálné fronty, ze kterých máme data (ignorujeme N/A pokud jich je tam málo)
+                    valid_queues = sorted([q for q in df_pick['Queue'].dropna().unique() if q != 'N/A'])
+                    
+                    for q in valid_queues:
+                        q_data = df_pick[df_pick['Queue'] == q]
+                        unique_tos = q_data[queue_count_col].dropna().unique()
+                        if len(unique_tos) > 0:
+                            # Vybere náhodně maximálně 5 unikátních TO (pokud jich je méně než 5, vezme všechny)
+                            sampled = np.random.choice(unique_tos, min(5, len(unique_tos)), replace=False)
+                            audit_samples[q] = sampled
+                            
+                    st.session_state['audit_samples'] = audit_samples
 
-            if 'random_to' in st.session_state:
-                r_to = st.session_state['random_to']
-                st.markdown(f"#### Detail pro identifikátor: **`{r_to}`**")
-                to_data = df_pick[df_pick[queue_count_col] == r_to]
-                for _, row in to_data.iterrows():
-                    mat, qty, boxes, w, d, su = row['Material'], row['Qty'], row['Box_Sizes_List'], row['Piece_Weight_KG'], row['Piece_Max_Dim_CM'], row.get('Removal of total SU', '')
-                    st.markdown(f"**Materiál:** `{mat}` | **Množství:** {qty} ks | **Balení v datech:** {boxes if boxes else 'Chybí'} | **Váha/ks:** {w:.3f} kg | **Max rozměr:** {d:.1f} cm")
-                    if su == 'X': st.info("➡️ *Odběr celé manipulační jednotky (palety) označen 'X' -> započítán 1 pohyb.*")
-                    else:
-                        zbytek = qty
-                        if boxes:
-                            for b in boxes:
-                                if b > 1 and zbytek >= b:
-                                    m = zbytek // b
-                                    st.info(f"➡️ Odebráno **{m} krabic** (po {b} ks) = **{m} pohybů**. (Zbylo {zbytek % b} ks)")
-                                    zbytek %= b
-                        if zbytek > 0:
-                            if w >= limit_vahy or d >= limit_rozmeru: st.warning(f"➡️ Zbytek {zbytek} ks překračuje jeden z limitů. Bere se po jednom kuse -> **{zbytek} pohybů**.")
-                            else: st.success(f"➡️ Zbytek {zbytek} ks je drobný. Bere se do hrsti (max {kusy_na_hmat} ks) -> **{np.ceil(zbytek / kusy_na_hmat):.0f} pohybů**.")
-                    st.markdown(f"##### **Celkem započítáno pohybů pro tento řádek: {row['Pohyby_Rukou']}**")
-                    st.write("---")
+            if 'audit_samples' in st.session_state:
+                for q, tos in st.session_state['audit_samples'].items():
+                    # Pro každou Queue vytvoříme samostatný panel
+                    with st.expander(f"📁 Fronta: {q} (Zobrazeno {len(tos)} úkolů)", expanded=False):
+                        for i, r_to in enumerate(tos, 1):
+                            st.markdown(f"#### {i}. Úkol (TO / Doklad): **`{r_to}`**")
+                            to_data = df_pick[df_pick[queue_count_col] == r_to]
+                            
+                            deliv_val = to_data['Delivery'].iloc[0] if 'Delivery' in to_data.columns else 'Neznámé'
+                            date_val = to_data['Date'].iloc[0] if 'Date' in to_data.columns else 'Neznámé'
+                            st.caption(f"**Zakázka (Delivery):** `{deliv_val}` | **Zpracováno dne:** `{date_val}`")
+                            
+                            for _, row in to_data.iterrows():
+                                mat = row['Material']
+                                qty = row['Qty']
+                                boxes = row.get('Box_Sizes_List', [])
+                                w = row.get('Piece_Weight_KG', 0)
+                                d = row.get('Piece_Max_Dim_CM', 0)
+                                su = row.get('Removal of total SU', '')
+                                src_bin = row.get('Source Storage Bin', 'Neznámá')
+                                
+                                st.markdown(f"**Materiál:** `{mat}` | **Zdrojová lokace:** `{src_bin}` | **Množství:** {qty} ks | **Balení (Master data):** {boxes if boxes else 'Chybí'} | **Váha/ks:** {w:.3f} kg | **Max rozměr:** {d:.1f} cm")
+                                
+                                if su == 'X':
+                                    st.info(f"➡️ Z lokace `{src_bin}` byla odebrána celá manipulační jednotka (paleta) označená jako 'X'. -> **Započítán 1 pohyb.**")
+                                else:
+                                    zbytek = qty
+                                    if boxes:
+                                        for b in boxes:
+                                            if b > 1 and zbytek >= b:
+                                                m = zbytek // b
+                                                st.info(f"➡️ Z lokace `{src_bin}` odebráno **{m} krabic** (po {b} ks) = **{m} pohybů**. (Zbylo {zbytek % b} ks)")
+                                                zbytek %= b
+                                    if zbytek > 0:
+                                        if w >= limit_vahy or d >= limit_rozmeru:
+                                            st.warning(f"➡️ Zbylých {zbytek} ks překračuje limity pro hrst ({w:.3f}kg, {d:.1f}cm). Musí se brát po jednom kuse -> **{zbytek} pohybů**.")
+                                        else:
+                                            hmaty = np.ceil(zbytek / kusy_na_hmat)
+                                            st.success(f"➡️ Zbylých {zbytek} ks je drobných. Lze je brát do hrsti (max {kusy_na_hmat} ks najednou) -> **{hmaty:.0f} pohybů**.")
+                                
+                                st.markdown(f"> **Započítáno fyzických pohybů pro tento řádek:** `{row.get('Pohyby_Rukou', 0)}`")
+                                st.write("---")
 
             # Vyhledávač materiálů
             st.divider()
