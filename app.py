@@ -62,6 +62,7 @@ TEXTS = {
         'q_col_loc': "Prům. lokací",
         'q_col_pcs': "Prům. kusů",
         'q_col_moves': "Prům. pohybů na TO",
+        'q_col_mov_loc': "Prům. pohybů na lokaci",
         'q_col_box': "Prům. krabice",
         'q_pct_box': "% Krabice",
         'q_col_ok': "Prům. volné",
@@ -126,6 +127,7 @@ TEXTS = {
         'q_col_loc': "Avg Locs",
         'q_col_pcs': "Avg Pieces",
         'q_col_moves': "Avg Moves per TO",
+        'q_col_mov_loc': "Avg Moves per Loc",
         'q_col_box': "Avg Boxes",
         'q_pct_box': "% Boxes",
         'q_col_ok': "Avg Loose",
@@ -402,7 +404,6 @@ def main():
                     c_t2.metric("Obsahuje Ověřené volné", f"{(to_ok / to_total * 100):.1f} %", f"{to_ok:,.0f} TO".replace(',', ' '))
                     c_t3.metric("Obsahuje Odhady", f"{(to_miss / to_total * 100):.1f} %", f"{to_miss:,.0f} TO".replace(',', ' '), delta_color="inverse")
 
-
             queue_summary = None
             if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any() and df_pick['Queue'].nunique() > 1:
                 st.divider()
@@ -435,10 +436,13 @@ def main():
                     q_sum['pocet_TO'] = queue_agg_final.groupby('Queue')[queue_count_col].nunique() if queue_count_col == 'Transfer Order Number' else q_sum['pocet_zakazek']
                     q_sum = q_sum.reset_index().sort_values('prum_pohybu', ascending=False)
                     
+                    # Výpočet průměru pohybů na lokaci
+                    q_sum['prum_pohybu_lokace'] = np.where(q_sum['prum_lokaci'] > 0, q_sum['prum_pohybu'] / q_sum['prum_lokaci'], 0)
+
                     for k in ['box', 'ok', 'miss']: q_sum[f'pct_{k}'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum[f'prum_{k}'] / q_sum['prum_pohybu']) * 100, 0)
                     
-                    display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_lokaci', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
-                    display_q.columns = [t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), t('q_col_moves'), t('q_col_box'), t('q_pct_box'), t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')]
+                    display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_lokaci', 'prum_kusu', 'prum_pohybu', 'prum_pohybu_lokace', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
+                    display_q.columns = [t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), t('q_col_moves'), t('q_col_mov_loc'), t('q_col_box'), t('q_pct_box'), t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')]
                     
                     col_qt1, col_qt2 = st.columns([2.5, 1])
                     with col_qt1:
@@ -476,7 +480,6 @@ def main():
                     c_p2.metric(t('ratio_loose_ok'), f"{(filtered_orders['pohyby_loose_ok'].sum() / tot_p_pal * 100):.1f} %")
                     c_p3.metric(t('ratio_loose_miss'), f"{(filtered_orders['pohyby_loose_miss'].sum() / tot_p_pal * 100):.1f} %", delta_color="inverse")
 
-                    # TO / Zakázková metrika pro paletové zakázky
                     pal_agg = filtered_orders.copy()
                     pal_agg['tot_moves'] = pal_agg['pohyby_box'] + pal_agg['pohyby_loose_ok'] + pal_agg['pohyby_loose_miss']
                     pal_agg = pal_agg[pal_agg['tot_moves'] > 0]
