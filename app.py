@@ -563,28 +563,18 @@ def main():
                     marm_detail = df_marm[df_marm['Match_Key'] == search_key]
                     if not marm_detail.empty: st.dataframe(marm_detail[['Alternative Unit of Measure', 'Numerator', 'Denominator', 'Gross Weight', 'Unit of Weight', 'Length', 'Width', 'Height', 'Unit of Dimension']], hide_index=True, use_container_width=True)
 
-           # Export
+            # Export
             st.divider()
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                # 1. Metodika a Nastavení
                 pd.DataFrame({"Téma": ["Hranice váhy", "Hranice rozměru", "Max do hrsti"], "Nastavení": [f"{limit_vahy} kg", f"{limit_rozmeru} cm", f"{kusy_na_hmat} ks"]}).to_excel(writer, index=False, sheet_name='Info_a_Metodika')
-                
-                # 2. Agregované přehledy pro rychlé prohlížení
                 if 'display_q' in locals(): display_q.to_excel(writer, index=False, sheet_name='Analyza_Queue')
                 if 'filtered_orders' in locals() and not filtered_orders.empty:
                     ex_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
                     ex_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
                     ex_df.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek_1_Mat')
-                df_pick.groupby('Material').agg(Pohyby=('Pohyby_Rukou', 'sum'), Kusy=('Qty', 'sum')).reset_index().to_excel(writer, index=False, sheet_name='Vsechna_Data_Agregovano')
-
-                # 3. ZDROJOVÁ TABULKA FAKTŮ PRO POWER BI
-                pbi_df = df_pick.copy()
-                # Excel neumí ukládat datový typ "seznam/list", proto strukturu balení převedeme na čitelný text
-                pbi_df['Box_Sizes_List'] = pbi_df['Box_Sizes_List'].astype(str)
-                pbi_df.to_excel(writer, index=False, sheet_name='PowerBI_Data')
-
-            st.download_button(label="📥 Stáhnout data (Připraveno pro Power BI)", data=buffer.getvalue(), file_name="Skladova_Analytika.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+                df_pick.groupby('Material').agg(Pohyby=('Pohyby_Rukou', 'sum'), Kusy=('Qty', 'sum')).reset_index().to_excel(writer, index=False, sheet_name='Vsechna_Data')
+            st.download_button(label=t('btn_download'), data=buffer.getvalue(), file_name="Skladova_Analytika.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
 if __name__ == "__main__":
     main()
