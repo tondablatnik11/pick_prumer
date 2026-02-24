@@ -75,7 +75,7 @@ TEXTS = {
         'm_orders': "Počet zakázek",
         'm_qty': "Prům. kusů / zakázku",
         'm_pos': "Prům. pozic / zakázku",
-        'm_mov': "Prům. fyz. pohybů",
+        'm_mov_loc': "Prům. fyz. pohybů na lokaci",
         'exp_detail_title': "Zobrazit tabulku zakázek (1 materiál)",
         'col_mat': "Materiál",
         'col_qty': "Kusů celkem",
@@ -140,7 +140,7 @@ TEXTS = {
         'm_orders': "Orders",
         'm_qty': "Avg Pcs / Order",
         'm_pos': "Avg Bins / Order",
-        'm_mov': "Avg Physical Moves",
+        'm_mov_loc': "Avg Physical Moves per Loc",
         'exp_detail_title': "Show Orders Table (1 Material)",
         'col_mat': "Material",
         'col_qty': "Total Pieces",
@@ -374,14 +374,12 @@ def main():
                 st.subheader(t('sec_ratio'))
                 st.write(t('ratio_desc'))
                 
-                # METRIKA 1: Podle počtu POHYBŮ
                 st.markdown(f"**{t('ratio_moves')}**")
                 c_r1, c_r2, c_r3 = st.columns(3)
                 c_r1.metric(t('ratio_master'), f"{(df_pick['Pohyby_Box'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Box'].sum():,.0f} pohybů".replace(',', ' '))
                 c_r2.metric(t('ratio_loose_ok'), f"{(df_pick['Pohyby_Loose_OK'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Loose_OK'].sum():,.0f} pohybů".replace(',', ' '))
                 c_r3.metric(t('ratio_loose_miss'), f"{(df_pick['Pohyby_Loose_Miss'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Loose_Miss'].sum():,.0f} pohybů".replace(',', ' '), delta_color="inverse")
 
-                # METRIKA 2: Podle počtu celých TO
                 st.markdown(f"**{t('ratio_tos')}**")
                 st.caption("*(Úkol spadne do odhadů, pokud obsahuje byť jen 1 odhadnutý řádek. Do Kompletně Krabice/Palety spadne, pokud nebyl potřeba žádný ruční dosběr)*")
                 
@@ -391,7 +389,7 @@ def main():
                     miss=('Pohyby_Loose_Miss', 'sum')
                 )
                 to_agg['tot_moves'] = to_agg['box'] + to_agg['ok'] + to_agg['miss']
-                to_agg = to_agg[to_agg['tot_moves'] > 0] # Bereme jen úkoly, kde se reálně něco zvedlo
+                to_agg = to_agg[to_agg['tot_moves'] > 0]
                 to_total = len(to_agg)
                 
                 if to_total > 0:
@@ -448,7 +446,8 @@ def main():
                     with col_qt1:
                         st.dataframe(display_q.style.format({c: "{:.1f}" for c in display_q.columns if 'Prům' in c} | {c: "{:.1f} %" for c in display_q.columns if '%' in c}), use_container_width=True, hide_index=True)
                     with col_qt2:
-                        st.bar_chart(q_sum.set_index('Queue')['prum_pohybu'])
+                        # Změna zkus grafu na zobrazení průměrných pohybů NA LOKACI
+                        st.bar_chart(q_sum.set_index('Queue')['prum_pohybu_lokace'])
 
         # === TAB 2: PALETOVÉ ZAKÁZKY ===
         with tab_pallets:
@@ -463,14 +462,18 @@ def main():
                 pohyby_loose_ok=('Pohyby_Loose_OK', 'sum'), pohyby_loose_miss=('Pohyby_Loose_Miss', 'sum'),
                 vaha_zakazky=('Celkova_Vaha_KG', 'sum'), max_rozmer=('Piece_Max_Dim_CM', 'first')
             )
-            filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(lambda c: len([x for x in c if pd.notna(x) and str(x).strip() and not str(x).strip().startswith('460')]) > 0))]
+            filtered_orders = grouped_orders[(grouped_orders['num_materials'] == 1) & (grouped_orders['certs'].apply(lambda c: len([x for x in c if pd.notna(x) and str(x).strip() and not str(x).strip().startswith('460')]) > 0))].copy()
 
             if not filtered_orders.empty:
+                # Výpočet pohybů na lokaci pro jednotlivé paletové zakázky
+                filtered_orders['mov_per_loc'] = np.where(filtered_orders['num_positions'] > 0, filtered_orders['celkem_pohybu'] / filtered_orders['num_positions'], 0)
+
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric(t('m_orders'), f"{len(filtered_orders):,}".replace(',', ' '))
                 c2.metric(t('m_qty'), f"{filtered_orders['total_qty'].mean():.1f}")
                 c3.metric(t('m_pos'), f"{filtered_orders['num_positions'].mean():.2f}")
-                c4.metric(t('m_mov'), f"{filtered_orders['celkem_pohybu'].mean():.1f}")
+                # Změna zobrazované metriky na "Prům. fyz. pohybů na lokaci"
+                c4.metric(t('m_mov_loc'), f"{filtered_orders['mov_per_loc'].mean():.1f}")
 
                 tot_p_pal = filtered_orders['celkem_pohybu'].sum()
                 if tot_p_pal > 0:
