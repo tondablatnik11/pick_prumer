@@ -63,11 +63,14 @@ TEXTS = {
         'q_col_pcs': "Prům. kusů",
         'q_col_moves': "Prům. pohybů na TO",
         'q_col_box': "Prům. krabice",
-        'q_pct_box': "% Krabice",
+        'q_pct_box': "% Pohybů (Krabice)",
         'q_col_ok': "Prům. volné",
-        'q_pct_ok': "% Volné",
+        'q_pct_ok': "% Pohybů (Volné)",
         'q_col_miss': "Prům. chybí",
-        'q_pct_miss': "% Chybí",
+        'q_pct_miss': "% Pohybů (Chybí)",
+        'q_pct_to_box': "% TO Krabice",
+        'q_pct_to_ok': "% TO Volné",
+        'q_pct_to_miss': "% TO Odhady",
         'sec_queue_top_title': "🏆 TOP 100 materiálů podle Queue",
         'q_select': "Zobrazit TOP 100 pro Queue:",
         'sec1_title': "🎯 Analýza paletových zakázek (1 materiál)",
@@ -127,11 +130,14 @@ TEXTS = {
         'q_col_pcs': "Avg Pieces",
         'q_col_moves': "Avg Moves per TO",
         'q_col_box': "Avg Boxes",
-        'q_pct_box': "% Boxes",
+        'q_pct_box': "% Moves (Boxes)",
         'q_col_ok': "Avg Loose",
-        'q_pct_ok': "% Loose",
+        'q_pct_ok': "% Moves (Loose)",
         'q_col_miss': "Avg Missing",
-        'q_pct_miss': "% Missing",
+        'q_pct_miss': "% Moves (Missing)",
+        'q_pct_to_box': "% TO Boxes",
+        'q_pct_to_ok': "% TO Loose",
+        'q_pct_to_miss': "% TO Missing",
         'sec_queue_top_title': "🏆 TOP 100 Materials by Queue",
         'q_select': "Show TOP 100 for Queue:",
         'sec1_title': "🎯 Single-Material Pallet Orders",
@@ -320,7 +326,6 @@ def main():
         progress_bar.progress(85)
         time.sleep(0.3)
 
-        # Logika počítání pohybů
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
             if qty <= 0: return 0, 0, 0, 0
@@ -389,7 +394,7 @@ def main():
                     miss=('Pohyby_Loose_Miss', 'sum')
                 )
                 to_agg['tot_moves'] = to_agg['box'] + to_agg['ok'] + to_agg['miss']
-                to_agg = to_agg[to_agg['tot_moves'] > 0] # Bereme jen úkoly, kde se reálně něco zvedlo
+                to_agg = to_agg[to_agg['tot_moves'] > 0]
                 to_total = len(to_agg)
                 
                 if to_total > 0:
@@ -419,6 +424,12 @@ def main():
                         pocet_lokaci=('Source Storage Bin', 'nunique'), delivery=('Delivery', 'first')
                     ).reset_index()
                     
+                    # LOGIKA PRO TO KATEGORIE
+                    queue_agg_raw['to_valid'] = np.where(queue_agg_raw['celkem_pohybu'] > 0, 1, 0)
+                    queue_agg_raw['to_miss'] = np.where((queue_agg_raw['celkem_pohybu'] > 0) & (queue_agg_raw['pohyby_loose_miss'] > 0), 1, 0)
+                    queue_agg_raw['to_ok'] = np.where((queue_agg_raw['celkem_pohybu'] > 0) & (queue_agg_raw['pohyby_loose_miss'] == 0) & (queue_agg_raw['pohyby_loose_ok'] > 0), 1, 0)
+                    queue_agg_raw['to_box'] = np.where((queue_agg_raw['celkem_pohybu'] > 0) & (queue_agg_raw['pohyby_loose_miss'] == 0) & (queue_agg_raw['pohyby_loose_ok'] == 0), 1, 0)
+                    
                     def adjust_queue_name(row):
                         return row['Queue'] + (' (Single)' if row['num_materials'] == 1 else ' (Mix)') if str(row['Queue']).upper() in ['PI_PL', 'PI_PL_OE'] else row['Queue']
 
@@ -430,15 +441,27 @@ def main():
                     q_sum = queue_agg_final.groupby('Queue').agg(
                         pocet_zakazek=('delivery', 'nunique'), prum_lokaci=('pocet_lokaci', 'mean'),
                         prum_kusu=('total_qty', 'mean'), prum_pohybu=('celkem_pohybu', 'mean'),
-                        prum_box=('pohyby_box', 'mean'), prum_ok=('pohyby_loose_ok', 'mean'), prum_miss=('pohyby_loose_miss', 'mean')
+                        prum_box=('pohyby_box', 'mean'), prum_ok=('pohyby_loose_ok', 'mean'), prum_miss=('pohyby_loose_miss', 'mean'),
+                        sum_to_valid=('to_valid', 'sum'), sum_to_box=('to_box', 'sum'), sum_to_ok=('to_ok', 'sum'), sum_to_miss=('to_miss', 'sum')
                     )
+                    
                     q_sum['pocet_TO'] = queue_agg_final.groupby('Queue')[queue_count_col].nunique() if queue_count_col == 'Transfer Order Number' else q_sum['pocet_zakazek']
                     q_sum = q_sum.reset_index().sort_values('prum_pohybu', ascending=False)
                     
+                    # Procenta pohybů
                     for k in ['box', 'ok', 'miss']: q_sum[f'pct_{k}'] = np.where(q_sum['prum_pohybu'] > 0, (q_sum[f'prum_{k}'] / q_sum['prum_pohybu']) * 100, 0)
                     
-                    display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_lokaci', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss']].copy()
-                    display_q.columns = [t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), t('q_col_moves'), t('q_col_box'), t('q_pct_box'), t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss')]
+                    # Procenta TO
+                    q_sum['pct_to_box'] = np.where(q_sum['sum_to_valid'] > 0, (q_sum['sum_to_box'] / q_sum['sum_to_valid']) * 100, 0)
+                    q_sum['pct_to_ok'] = np.where(q_sum['sum_to_valid'] > 0, (q_sum['sum_to_ok'] / q_sum['sum_to_valid']) * 100, 0)
+                    q_sum['pct_to_miss'] = np.where(q_sum['sum_to_valid'] > 0, (q_sum['sum_to_miss'] / q_sum['sum_to_valid']) * 100, 0)
+                    
+                    display_q = q_sum[['Queue', 'pocet_TO', 'pocet_zakazek', 'prum_lokaci', 'prum_kusu', 'prum_pohybu', 'prum_box', 'pct_box', 'prum_ok', 'pct_ok', 'prum_miss', 'pct_miss', 'pct_to_box', 'pct_to_ok', 'pct_to_miss']].copy()
+                    display_q.columns = [
+                        t('q_col_queue'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), 
+                        t('q_col_moves'), t('q_col_box'), t('q_pct_box'), t('q_col_ok'), t('q_pct_ok'), t('q_col_miss'), t('q_pct_miss'),
+                        t('q_pct_to_box'), t('q_pct_to_ok'), t('q_pct_to_miss')
+                    ]
                     
                     col_qt1, col_qt2 = st.columns([2.5, 1])
                     with col_qt1:
@@ -476,7 +499,6 @@ def main():
                     c_p2.metric(t('ratio_loose_ok'), f"{(filtered_orders['pohyby_loose_ok'].sum() / tot_p_pal * 100):.1f} %")
                     c_p3.metric(t('ratio_loose_miss'), f"{(filtered_orders['pohyby_loose_miss'].sum() / tot_p_pal * 100):.1f} %", delta_color="inverse")
 
-                    # TO / Zakázková metrika pro paletové zakázky
                     pal_agg = filtered_orders.copy()
                     pal_agg['tot_moves'] = pal_agg['pohyby_box'] + pal_agg['pohyby_loose_ok'] + pal_agg['pohyby_loose_miss']
                     pal_agg = pal_agg[pal_agg['tot_moves'] > 0]
@@ -607,18 +629,6 @@ def main():
                     st.write("**Surová data z MARM reportu:**")
                     marm_detail = df_marm[df_marm['Match_Key'] == search_key]
                     if not marm_detail.empty: st.dataframe(marm_detail[['Alternative Unit of Measure', 'Numerator', 'Denominator', 'Gross Weight', 'Unit of Weight', 'Length', 'Width', 'Height', 'Unit of Dimension']], hide_index=True, use_container_width=True)
-
-            st.divider()
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                pd.DataFrame({"Téma": ["Hranice váhy", "Hranice rozměru", "Max do hrsti"], "Nastavení": [f"{limit_vahy} kg", f"{limit_rozmeru} cm", f"{kusy_na_hmat} ks"]}).to_excel(writer, index=False, sheet_name='Info_a_Metodika')
-                if 'display_q' in locals(): display_q.to_excel(writer, index=False, sheet_name='Analyza_Queue')
-                if 'filtered_orders' in locals() and not filtered_orders.empty:
-                    ex_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer']].copy()
-                    ex_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_wgt'), t('col_max_dim')]
-                    ex_df.to_excel(writer, index=True, sheet_name='Souhrn_Zakazek_1_Mat')
-                df_pick.groupby('Material').agg(Pohyby=('Pohyby_Rukou', 'sum'), Kusy=('Qty', 'sum')).reset_index().to_excel(writer, index=False, sheet_name='Vsechna_Data')
-            st.download_button(label=t('btn_download'), data=buffer.getvalue(), file_name="Skladova_Analytika.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
 if __name__ == "__main__":
     main()
