@@ -48,7 +48,9 @@ TEXTS = {
         'hmat_label': "Max ks lehkých dílů do hrsti",
         'exclude_label': "Vyloučit materiály z výpočtů:",
         'sec_ratio': "🎯 Spolehlivost dat a zdroj výpočtů",
-        'ratio_desc': "Z jakých podkladů aplikace vycházela při výpočtu fyzických pohybů:",
+        'ratio_desc': "Z jakých podkladů aplikace vycházela (Ukazatel kvality dat ze SAPu):",
+        'ratio_moves': "1. Podíl z celkového počtu POHYBŮ:",
+        'ratio_tos': "2. Podíl z celkového počtu ÚKOLŮ (TO):",
         'ratio_master': "Přesně (Krabice / Palety)",
         'ratio_loose_ok': "Přesně (Ověřené volné)",
         'ratio_loose_miss': "Odhady (Chybí balení)",
@@ -111,6 +113,8 @@ TEXTS = {
         'exclude_label': "Exclude materials:",
         'sec_ratio': "🎯 Data Reliability & Calculation Source",
         'ratio_desc': "Data foundation used for calculating physical movements:",
+        'ratio_moves': "1. Share of total MOVEMENTS:",
+        'ratio_tos': "2. Share of total Transfer Orders (TO):",
         'ratio_master': "Exact (Boxes / Pallets)",
         'ratio_loose_ok': "Exact (Verified Loose)",
         'ratio_loose_miss': "Estimated (Missing Box)",
@@ -184,18 +188,6 @@ def create_top_100_df(df_subset):
     }, inplace=True)
 
     return agg.sort_values(by=t('col_mov'), ascending=False).head(100)[[t('col_mat'), t('col_lines'), t('col_qty'), t('col_wgt'), t('col_mov_box'), t('col_mov_loose_ok'), t('col_mov_loose_miss'), t('col_mov')]]
-
-def add_excel_chart(writer, sheet_name, df_top):
-    worksheet = writer.sheets[sheet_name]
-    chart = BarChart()
-    chart.type, chart.style, chart.width, chart.height = "col", 10, 25, 12
-    chart.title = "Zátěž materiálů dle fyzických pohybů"
-    col_mat_idx = list(df_top.columns).index(t('col_mat')) + 1
-    col_mov_idx = list(df_top.columns).index(t('col_mov')) + 1
-    chart.add_data(Reference(worksheet, min_col=col_mov_idx, min_row=1, max_row=len(df_top)+1), titles_from_data=True)
-    chart.set_categories(Reference(worksheet, min_col=col_mat_idx, min_row=2, max_row=len(df_top)+1))
-    chart.legend = None 
-    worksheet.add_chart(chart, "K2")
 
 def main():
     col_title, col_lang = st.columns([8, 1])
@@ -328,7 +320,7 @@ def main():
         progress_bar.progress(85)
         time.sleep(0.3)
 
-        # NOVÁ LOGIKA PRO VÝPOČET - X platí jen pro PI_PL_FU a PI_PL_FUOE
+        # Logika počítání pohybů
         def spocitej_pohyby_detail(row):
             qty = row['Qty']
             if qty <= 0: return 0, 0, 0, 0
@@ -353,7 +345,6 @@ def main():
         df_pick[['Pohyby_Rukou', 'Pohyby_Box', 'Pohyby_Loose_OK', 'Pohyby_Loose_Miss']] = df_pick.apply(spocitej_pohyby_detail, axis=1, result_type='expand')
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        # Zjištění počtu řádků ovlivněných pravidlem X (jen pro Info banner)
         mask_x = (df_pick['Removal of total SU'] == 'X') & (df_pick['Queue'].astype(str).str.upper().isin(['PI_PL_FU', 'PI_PL_FUOE']))
         pocet_radku_x = mask_x.sum()
 
@@ -380,10 +371,37 @@ def main():
             if tot_mov > 0:
                 st.subheader(t('sec_ratio'))
                 st.write(t('ratio_desc'))
+                
+                # METRIKA 1: Podle počtu POHYBŮ
+                st.markdown(f"**{t('ratio_moves')}**")
                 c_r1, c_r2, c_r3 = st.columns(3)
                 c_r1.metric(t('ratio_master'), f"{(df_pick['Pohyby_Box'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Box'].sum():,.0f} pohybů".replace(',', ' '))
                 c_r2.metric(t('ratio_loose_ok'), f"{(df_pick['Pohyby_Loose_OK'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Loose_OK'].sum():,.0f} pohybů".replace(',', ' '))
                 c_r3.metric(t('ratio_loose_miss'), f"{(df_pick['Pohyby_Loose_Miss'].sum() / tot_mov * 100):.1f} %", f"{df_pick['Pohyby_Loose_Miss'].sum():,.0f} pohybů".replace(',', ' '), delta_color="inverse")
+
+                # METRIKA 2: Podle počtu celých TO
+                st.markdown(f"**{t('ratio_tos')}**")
+                st.caption("*(Úkol spadne do odhadů, pokud obsahuje byť jen 1 odhadnutý řádek. Do Kompletně Krabice/Palety spadne, pokud nebyl potřeba žádný ruční dosběr)*")
+                
+                to_agg = df_pick.groupby(queue_count_col).agg(
+                    box=('Pohyby_Box', 'sum'),
+                    ok=('Pohyby_Loose_OK', 'sum'),
+                    miss=('Pohyby_Loose_Miss', 'sum')
+                )
+                to_agg['tot_moves'] = to_agg['box'] + to_agg['ok'] + to_agg['miss']
+                to_agg = to_agg[to_agg['tot_moves'] > 0] # Bereme jen úkoly, kde se reálně něco zvedlo
+                to_total = len(to_agg)
+                
+                if to_total > 0:
+                    to_miss = len(to_agg[to_agg['miss'] > 0])
+                    to_ok = len(to_agg[(to_agg['miss'] == 0) & (to_agg['ok'] > 0)])
+                    to_box = to_total - to_miss - to_ok
+                    
+                    c_t1, c_t2, c_t3 = st.columns(3)
+                    c_t1.metric("Kompletně Krabice/Palety", f"{(to_box / to_total * 100):.1f} %", f"{to_box:,.0f} TO".replace(',', ' '))
+                    c_t2.metric("Obsahuje Ověřené volné", f"{(to_ok / to_total * 100):.1f} %", f"{to_ok:,.0f} TO".replace(',', ' '))
+                    c_t3.metric("Obsahuje Odhady", f"{(to_miss / to_total * 100):.1f} %", f"{to_miss:,.0f} TO".replace(',', ' '), delta_color="inverse")
+
 
             queue_summary = None
             if 'Queue' in df_pick.columns and df_pick['Queue'].notna().any() and df_pick['Queue'].nunique() > 1:
@@ -431,7 +449,6 @@ def main():
         # === TAB 2: PALETOVÉ ZAKÁZKY ===
         with tab_pallets:
             st.subheader(t('sec1_title'))
-            # NOVINKA: Z této tabulky úplně vyloučíme fronty PI_PL_FU a PI_PL_FUOE
             df_pallets_clean = df_pick[~df_pick['Queue'].astype(str).str.upper().isin(['PI_PL_FU', 'PI_PL_FUOE'])]
             
             grouped_orders = df_pallets_clean.groupby('Delivery').agg(
@@ -453,11 +470,28 @@ def main():
 
                 tot_p_pal = filtered_orders['celkem_pohybu'].sum()
                 if tot_p_pal > 0:
-                    st.markdown("**Spolehlivost dat čistě pro tyto paletové zakázky:**")
+                    st.markdown(f"**Spolehlivost dat čistě pro tyto paletové zakázky ({t('ratio_moves')}):**")
                     c_p1, c_p2, c_p3 = st.columns(3)
                     c_p1.metric(t('ratio_master'), f"{(filtered_orders['pohyby_box'].sum() / tot_p_pal * 100):.1f} %")
                     c_p2.metric(t('ratio_loose_ok'), f"{(filtered_orders['pohyby_loose_ok'].sum() / tot_p_pal * 100):.1f} %")
                     c_p3.metric(t('ratio_loose_miss'), f"{(filtered_orders['pohyby_loose_miss'].sum() / tot_p_pal * 100):.1f} %", delta_color="inverse")
+
+                    # TO / Zakázková metrika pro paletové zakázky
+                    pal_agg = filtered_orders.copy()
+                    pal_agg['tot_moves'] = pal_agg['pohyby_box'] + pal_agg['pohyby_loose_ok'] + pal_agg['pohyby_loose_miss']
+                    pal_agg = pal_agg[pal_agg['tot_moves'] > 0]
+                    pal_to_tot = len(pal_agg)
+                    
+                    if pal_to_tot > 0:
+                        st.markdown(f"**Spolehlivost dat čistě pro tyto paletové zakázky ({t('ratio_tos')}):**")
+                        pal_miss = len(pal_agg[pal_agg['pohyby_loose_miss'] > 0])
+                        pal_ok = len(pal_agg[(pal_agg['pohyby_loose_miss'] == 0) & (pal_agg['pohyby_loose_ok'] > 0)])
+                        pal_box = pal_to_tot - pal_miss - pal_ok
+                        
+                        c_pt1, c_pt2, c_pt3 = st.columns(3)
+                        c_pt1.metric("Kompletně Krabice", f"{(pal_box / pal_to_tot * 100):.1f} %", f"{pal_box:,.0f} Zakázek")
+                        c_pt2.metric("Obsahuje Volné", f"{(pal_ok / pal_to_tot * 100):.1f} %", f"{pal_ok:,.0f} Zakázek")
+                        c_pt3.metric("Obsahuje Odhady", f"{(pal_miss / pal_to_tot * 100):.1f} %", f"{pal_miss:,.0f} Zakázek", delta_color="inverse")
 
                 with st.expander(t('exp_detail_title')):
                     display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_box', 'pohyby_loose_ok', 'pohyby_loose_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
