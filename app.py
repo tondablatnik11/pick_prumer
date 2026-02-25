@@ -79,12 +79,22 @@ TEXTS = {
         'exclude_label': "Vyloučit materiály z výpočtů:",
         'sec_ratio': "🎯 Spolehlivost dat a zdroj výpočtů",
         'ratio_desc': "Z jakých podkladů aplikace vycházela (Ukazatel kvality dat ze SAPu):",
-        'logic_explain_title': "ℹ️ Jak aplikace vypočítává výsledná data?",
-        'logic_explain_text': """Tento model detailně simuluje fyzickou námahu skladníka během vychystávání:
-        1. **Manipulační jednotky (SU = X):** Odběr celé palety ve frontách FU/FUOE se počítá jako 1 pohyb (práce s VZV).
-        2. **Celá balení (Přesně):** U vychystávání po kusech se aplikace dívá do kmenových dat (MARM) nebo ručního ceníku. Systém rozdělí požadované množství na plné krabice (1 krabice = 1 pohyb).
-        3. **Volné kusy (Přesně):** Zbylé rozbalené kusy se berou 'do hrsti' dle nastaveného limitu. Pokud přesáhnou povolenou váhu nebo rozměr, počítá se co kus, to jeden pohyb.
-        4. **Bezpečnostní odhady:** Pokud u materiálu chybí data o balení, systém automaticky nasadí odhad na základě váhy a rozměru, aby nedošlo k umělému podhodnocení námahy.""",
+        'logic_explain_title': "ℹ️ Podrobná metodika: Jak aplikace vypočítává výsledná data?",
+        'logic_explain_text': """Tento analytický model detailně simuluje fyzickou zátěž skladníka podle následujícího postupu:
+
+**1. Identifikace celých manipulačních jednotek (SU)**
+Pokud je ve frontách vyhrazených pro celé palety (`PI_PL_FU`, `PI_PL_FUOE`) zaznamenán odběr typu 'X', systém jej klasifikuje jako manipulaci vysokozdvižným vozíkem. Celá tato akce je započítána jako **1 pohyb**.
+
+**2. Dekompozice na celá balení (Krabice)**
+U kusového vychystávání (ostatní fronty) se algoritmus dotazuje do kmenových dat (MARM) nebo do vašeho ručního ceníku. Systém rozpočítá celkové množství na plné krabice. Co krabice, to **1 fyzický pohyb**.
+
+**3. Analýza volných kusů (Limity a Hmat)**
+Zbylé rozbalené kusy podléhají kontrole ergonomických limitů:
+* *Překročení limitů:* Pokud kus přesahuje nastavenou povolenou váhu nebo rozměr, musí ho skladník vzít samostatně. Každý takový kus = **1 pohyb**.
+* *Lehké a drobné díly:* Pokud kusy limity nepřesahují, skladník je bere do hrsti. Systém je vydělí vaším nastavením "kusů do hrsti" (např. 3 ks do hrsti = **1 pohyb**).
+
+**4. Bezpečnostní odhady (Chybějící data)**
+Pokud v SAPu chybí u materiálu jakákoliv data o balení, systém nemůže tvořit krabice. Aby nedošlo k podhodnocení námahy pracovníka, aplikuje se bezpečnostní odhad přímo na základě váhy a rozměru každého kusu.""",
         'ratio_moves': "Podíl z celkového počtu POHYBŮ:",
         'ratio_exact': "Přesně (Krabice / Palety / Volné)",
         'ratio_miss': "Odhady (Chybí balení)",
@@ -152,12 +162,22 @@ TEXTS = {
         'exclude_label': "Exclude materials:",
         'sec_ratio': "🎯 Data Reliability & Source",
         'ratio_desc': "Data foundation (SAP Data Quality indicator):",
-        'logic_explain_title': "ℹ️ How does the app calculate the resulting data?",
-        'logic_explain_text': """This model simulates the physical effort of a warehouse worker during picking:
-        1. **Handling Units (SU = X):** Picking a full pallet in FU/FUOE queues counts as 1 move (forklift work).
-        2. **Full Boxes (Exact):** For piece picking, the app checks master data (MARM) or manual overrides. The system breaks the quantity down into full boxes (1 box = 1 move).
-        3. **Loose Pieces (Exact):** Remaining loose pieces are picked 'by grab' based on the set limit. If they exceed the allowed weight or dimension, they are picked 1-by-1.
-        4. **Safety Estimates:** If packaging data is missing, the system automatically applies an estimate based on weight and size to prevent artificially underestimating the workload.""",
+        'logic_explain_title': "ℹ️ Detailed Methodology: How does the app calculate the resulting data?",
+        'logic_explain_text': """This analytical model meticulously simulates the picker's physical workload using the following procedure:
+
+**1. Identification of Full Handling Units (SU)**
+If an 'X' removal is recorded in dedicated full-pallet queues (`PI_PL_FU`, `PI_PL_FUOE`), the system classifies it as forklift handling. This entire action counts as **1 physical move**.
+
+**2. Decomposition into Full Boxes (Packaging)**
+For piece picking (other queues), the algorithm queries the Master Data (MARM) or your manual override list. The system breaks down the total quantity into full boxes. Each box equals **1 physical move**.
+
+**3. Loose Pieces Analysis (Limits and Grabs)**
+Remaining unpacked pieces are checked against ergonomic limits:
+* *Exceeding Limits:* If a piece exceeds the allowed weight or dimension limit, the picker must handle it individually. Each such piece = **1 move**.
+* *Light and Small Parts:* If pieces are below the limits, the picker grabs them in bunches. The system divides them by your "pieces per grab" setting (e.g., 3 pcs per grab = **1 move**).
+
+**4. Safety Estimates (Missing Data)**
+If SAP lacks packaging data for a material, the system cannot construct boxes. To prevent underestimating the worker's effort, a safety estimate is applied directly based on the weight and dimensions of each individual piece.""",
         'ratio_moves': "Share of total MOVEMENTS:",
         'ratio_exact': "Exact (Boxes / Pallets / Loose)",
         'ratio_miss': "Estimates (Missing packaging)",
@@ -273,19 +293,22 @@ def main():
             st.session_state.lang = 'en' if st.session_state.lang == 'cs' else 'cs'
             st.rerun()
 
+    st.divider()
+
     st.sidebar.header(t('sidebar_title'))
     limit_vahy = st.sidebar.number_input(t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5)
     limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0)
     kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=1, step=1)
     
     with st.expander(t('upload_title'), expanded=True):
-        uploaded_files = st.file_uploader(t('upload_help'), type=['csv', 'xlsx'], accept_multiple_files=True)
+        st.markdown(f"**{t('upload_help')}**")
+        # Použití neměnného key a skrytého labelu zajistí, že se uploader při přepnutí jazyka nevymaže!
+        uploaded_files = st.file_uploader("UploadFiles", label_visibility="collapsed", type=['csv', 'xlsx'], accept_multiple_files=True, key="main_uploader")
 
     if uploaded_files:
-        # Generování unikátního hashe pro nahrané soubory
         current_files_hash = "".join([f"{f.name}{f.size}" for f in uploaded_files])
         
-        # --- CACHING A PARSOVÁNÍ SOUBORŮ POUZE PŘI ZMĚNĚ ---
+        # --- CACHING A PARSOVÁNÍ SOUBORŮ POUZE PŘI ZMĚNĚ SOUBORŮ ---
         if st.session_state.get('last_files_hash') != current_files_hash:
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -330,7 +353,6 @@ def main():
                 
             df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
 
-            # Párování front z TO details
             queue_count_col = 'Delivery'
             if df_queue_raw is not None:
                 if 'Transfer Order Number' in df_pick.columns and 'Transfer Order Number' in df_queue_raw.columns:
@@ -359,7 +381,6 @@ def main():
 
             df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
 
-            # Načtení Master dat z MARM a ručního excelu
             manual_boxes = {}
             if df_manual_raw is not None and not df_manual_raw.empty:
                 c_mat, c_pkg = df_manual_raw.columns[0], df_manual_raw.columns[1]
@@ -401,7 +422,7 @@ def main():
             df_pick['Piece_Weight_KG'] = df_pick['Match_Key'].map(weight_dict).fillna(0.0)
             df_pick['Piece_Max_Dim_CM'] = df_pick['Match_Key'].map(dim_dict).fillna(0.0)
 
-            # Uložení předpřipravených dat do session_state, aby se nemusely parsovat znovu
+            # Uložení do session_state
             st.session_state['last_files_hash'] = current_files_hash
             st.session_state['df_pick_prep'] = df_pick
             st.session_state['queue_count_col'] = queue_count_col
@@ -417,7 +438,7 @@ def main():
             progress_bar.empty()
             status_text.empty()
 
-        # Načtení dat z cache (okamžité!)
+        # --- BLESKOVÉ NAČTENÍ Z CACHE A PŘEPOČET ---
         df_pick = st.session_state['df_pick_prep'].copy()
         queue_count_col = st.session_state['queue_count_col']
         num_removed_admins = st.session_state['num_removed_admins']
@@ -433,7 +454,7 @@ def main():
         if excluded_materials:
             df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
-        # Bleskový vektorizovaný výpočet se spustí vždy, když se změní posuvníky
+        # Výpočet se spouští instantně pro každou změnu posuvníků
         t_total, t_exact, t_miss = fast_compute_moves(
             qty_list=df_pick['Qty'].values, queue_list=df_pick['Queue'].values, su_list=df_pick['Removal of total SU'].values,
             box_list=df_pick['Box_Sizes_List'].values, w_list=df_pick['Piece_Weight_KG'].values, d_list=df_pick['Piece_Max_Dim_CM'].values,
@@ -445,7 +466,6 @@ def main():
         df_pick['Pohyby_Loose_Miss'] = t_miss
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        # Informační Banner
         c_i1, c_i2, c_i3 = st.columns(3)
         if num_removed_admins > 0: c_i1.info(t('info_users').format(num_removed_admins))
         x_c = ((df_pick['Removal of total SU'] == 'X') & (df_pick['Queue'].str.contains('FU', na=False))).sum()
@@ -525,7 +545,7 @@ def main():
                     display_q.columns = [t('q_col_queue'), t('q_col_desc'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), 
                                          t('q_col_mov_loc'), t('q_col_exact_loc'), t('q_pct_exact'), t('q_col_miss_loc'), t('q_pct_miss')]
                     
-                    # Zvýraznění klíčových sloupců přes Pandas Styler
+                    # Zvýraznění (Styler) pro klíčové sloupce
                     styled_q = display_q.style.format({c: "{:.1f}" for c in display_q.columns if 'Prům' in c or 'Avg' in c or 'Pohyb' in c or 'Loc' in c} | {c: "{:.1f} %" for c in display_q.columns if '%' in c})\
                         .set_properties(subset=[t('q_col_queue'), t('q_col_mov_loc')], **{'font-weight': 'bold', 'color': '#1f77b4', 'background-color': 'rgba(31, 119, 180, 0.05)'})
                     
@@ -579,7 +599,7 @@ def main():
                     with st.expander(t('exp_detail_title')):
                         display_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_exact', 'pohyby_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
                         display_df.columns = [t('col_mat'), t('col_qty'), t('col_mov'), t('col_mov_exact'), t('col_mov_miss'), t('col_wgt'), t('col_max_dim'), t('col_cert')]
-                        st.dataframe(display_df, use_container_width=True)
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
                 else:
                     st.warning(t('no_orders'))
             else:
