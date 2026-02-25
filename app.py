@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import io
 import re
-import time
 from openpyxl.chart import BarChart, Reference
 
 # ==========================================
@@ -70,33 +69,24 @@ TEXTS = {
         'upload_title': "📁 Nahrání vstupních dat (Klikněte pro sbalení/rozbalení)",
         'upload_help': "Nahrajte Pick report, MARM report, TO details (Queue) a volitelně i ruční ověření balení.",
         'info_users': "💡 Vyloučeno **{} systémových řádků** (UIDJ5089, UIH25501).",
-        'info_clean': "💡 Započítán 1 pohyb pro **{} řádků** 'X' (Platí POUZE pro Queue: PI_PL_FU, PI_PL_FUOE).",
         'info_manual': "✅ Načteno ruční ověření pro **{} unikátních materiálů**.",
-        'sidebar_title': "⚙️ Konfigurace algoritmů",
-        'weight_label': "Hranice pro nošení po 1 ks (kg)",
-        'dim_label': "Hranice rozměru pro 1 ks (cm)",
-        'hmat_label': "Max ks lehkých dílů do hrsti",
+        'sidebar_title': "⚙️ Konfigurace",
         'exclude_label': "Vyloučit materiály z výpočtů:",
         'sec_ratio': "🎯 Spolehlivost dat a zdroj výpočtů",
         'ratio_desc': "Z jakých podkladů aplikace vycházela (Ukazatel kvality dat ze SAPu):",
         'logic_explain_title': "ℹ️ Podrobná metodika: Jak aplikace vypočítává výsledná data?",
-        'logic_explain_text': """Tento analytický model detailně simuluje fyzickou zátěž skladníka podle následujícího postupu:
+        'logic_explain_text': """Aplikace ke správnému výpočtu kombinuje tyto vstupní soubory:
+* **Pick report:** Hlavní záznam o vychystávání (materiál, množství, zdrojová lokace).
+* **MARM report:** Kmenová data (Master Data) obsahující definice balení (počet ks v krabici) a váhy/rozměry.
+* **TO details (Queue):** Určuje, do jaké fronty (např. Mix Pallet) daný úkol patří.
+* **Ruční ověření:** Volitelný Excel s vlastním nastavením počtu kusů v krabici pro konkrétní materiály.
 
-**1. Identifikace celých manipulačních jednotek (SU)**
-Pokud je ve frontách vyhrazených pro celé palety (`PI_PL_FU`, `PI_PL_FUOE`) zaznamenán odběr typu 'X', systém jej klasifikuje jako manipulaci vysokozdvižným vozíkem. Celá tato akce je započítána jako **1 pohyb**.
-
-**2. Dekompozice na celá balení (Krabice)**
-U kusového vychystávání (ostatní fronty) se algoritmus dotazuje do kmenových dat (MARM) nebo do vašeho ručního ceníku. Systém rozpočítá celkové množství na plné krabice. Co krabice, to **1 fyzický pohyb**.
-
-**3. Analýza volných kusů (Limity a Hmat)**
-Zbylé rozbalené kusy podléhají kontrole ergonomických limitů:
-* *Překročení limitů:* Pokud kus přesahuje nastavenou povolenou váhu nebo rozměr, musí ho skladník vzít samostatně. Každý takový kus = **1 pohyb**.
-* *Lehké a drobné díly:* Pokud kusy limity nepřesahují, skladník je bere do hrsti. Systém je vydělí vaším nastavením "kusů do hrsti" (např. 3 ks do hrsti = **1 pohyb**).
-
-**4. Bezpečnostní odhady (Chybějící data)**
-Pokud v SAPu chybí u materiálu jakákoliv data o balení, systém nemůže tvořit krabice. Aby nedošlo k podhodnocení námahy pracovníka, aplikuje se bezpečnostní odhad přímo na základě váhy a rozměru každého kusu.""",
+**Algoritmus simulace fyzické zátěže:**
+1. **Dekompozice na krabice:** U každého řádku aplikace zjistí velikost krabice (z MARM nebo ručního souboru). Zadané množství se rozdělí na celé krabice. Každá manipulace s krabicí = **1 fyzický pohyb**.
+2. **Volné kusy:** Kusy, které se nevejdou do celé krabice, se počítají samostatně. Protože se volné kusy berou po jednom, platí rovnice: 1 volný kus = **1 fyzický pohyb**.
+3. **Bezpečnostní odhady:** Pokud u materiálu zcela chybí informace o balení (krabicích), aplikace předpokládá manipulaci po jednotlivých kusech, aby nedošlo k umělému podhodnocení skutečné fyzické námahy skladníka.""",
         'ratio_moves': "Podíl z celkového počtu POHYBŮ:",
-        'ratio_exact': "Přesně (Krabice / Palety / Volné)",
+        'ratio_exact': "Přesně (Krabice / Volné)",
         'ratio_miss': "Odhady (Chybí balení)",
         'exp_missing_data': "🔍 Zobrazit materiály s chybějícími daty o balení (Žebříček 'odhadů')",
         'sec_queue_title': "📊 Průměrná náročnost dle typu pickování (Queue)",
@@ -153,33 +143,24 @@ Pokud v SAPu chybí u materiálu jakákoliv data o balení, systém nemůže tvo
         'upload_title': "📁 Upload Input Data (Click to expand/collapse)",
         'upload_help': "Upload Pick report, MARM report, TO details (Queue), and optional Manual Override.",
         'info_users': "💡 Excluded **{} system lines** (UIDJ5089, UIH25501).",
-        'info_clean': "💡 1 move counted for **{} lines** of 'X' (Applies ONLY to PI_PL_FU, PI_PL_FUOE).",
         'info_manual': "✅ Loaded manual packaging for **{} unique materials**.",
-        'sidebar_title': "⚙️ Algorithm Configuration",
-        'weight_label': "Weight limit for 1-by-1 pick (kg)",
-        'dim_label': "Dimension limit for 1-by-1 (cm)",
-        'hmat_label': "Max pieces per grab",
+        'sidebar_title': "⚙️ Configuration",
         'exclude_label': "Exclude materials:",
         'sec_ratio': "🎯 Data Reliability & Source",
         'ratio_desc': "Data foundation (SAP Data Quality indicator):",
-        'logic_explain_title': "ℹ️ Detailed Methodology: How does the app calculate the resulting data?",
-        'logic_explain_text': """This analytical model meticulously simulates the picker's physical workload using the following procedure:
+        'logic_explain_title': "ℹ️ Detailed Methodology: How does the app calculate the results?",
+        'logic_explain_text': """The application combines the following input files for accurate calculation:
+* **Pick report:** The main record of picking tasks (material, quantity, source bin).
+* **MARM report:** Master Data containing packaging definitions (pcs per box) and weights/dimensions.
+* **TO details (Queue):** Assigns each task to a specific queue (e.g., Mix Pallet).
+* **Manual Override:** An optional Excel file to force specific box quantities for specific materials.
 
-**1. Identification of Full Handling Units (SU)**
-If an 'X' removal is recorded in dedicated full-pallet queues (`PI_PL_FU`, `PI_PL_FUOE`), the system classifies it as forklift handling. This entire action counts as **1 physical move**.
-
-**2. Decomposition into Full Boxes (Packaging)**
-For piece picking (other queues), the algorithm queries the Master Data (MARM) or your manual override list. The system breaks down the total quantity into full boxes. Each box equals **1 physical move**.
-
-**3. Loose Pieces Analysis (Limits and Grabs)**
-Remaining unpacked pieces are checked against ergonomic limits:
-* *Exceeding Limits:* If a piece exceeds the allowed weight or dimension limit, the picker must handle it individually. Each such piece = **1 move**.
-* *Light and Small Parts:* If pieces are below the limits, the picker grabs them in bunches. The system divides them by your "pieces per grab" setting (e.g., 3 pcs per grab = **1 move**).
-
-**4. Safety Estimates (Missing Data)**
-If SAP lacks packaging data for a material, the system cannot construct boxes. To prevent underestimating the worker's effort, a safety estimate is applied directly based on the weight and dimensions of each individual piece.""",
+**Physical Workload Simulation Algorithm:**
+1. **Decomposition into Boxes:** For each line, the app retrieves the box size (from MARM or the override file). The quantity is divided into full boxes. Each handled box = **1 physical move**.
+2. **Loose Pieces:** Pieces that do not make up a full box are counted individually. Since loose items are picked one by one, the rule is: 1 loose piece = **1 physical move**.
+3. **Safety Estimates:** If packaging info is completely missing for a material, the app assumes piece-by-piece handling. This safety estimate prevents artificially underestimating the actual physical effort of the warehouse worker.""",
         'ratio_moves': "Share of total MOVEMENTS:",
-        'ratio_exact': "Exact (Boxes / Pallets / Loose)",
+        'ratio_exact': "Exact (Boxes / Loose)",
         'ratio_miss': "Estimates (Missing packaging)",
         'exp_missing_data': "🔍 Show materials with missing box data (Estimates Leaderboard)",
         'sec_queue_title': "📊 Average Workload by Queue",
@@ -231,7 +212,6 @@ If SAP lacks packaging data for a material, the system cannot construct boxes. T
     }
 }
 
-# --- POMOCNÉ FUNKCE ---
 def t(key):
     return TEXTS[st.session_state.lang][key]
 
@@ -241,21 +221,103 @@ def get_match_key(val):
         return v.rstrip('0').rstrip('.')
     return v
 
-def fast_compute_moves(qty_list, queue_list, su_list, box_list, w_list, d_list, v_lim, d_lim, h_lim):
-    """Vektorizovaná kalkulace pro absolutní rychlost i na obrovských datech."""
+# ==========================================
+# 3. ZPRACOVÁNÍ DAT (CACHOVÁNO PRO OKAMŽITÝ PŘEPÍNAČ JAZYKŮ)
+# ==========================================
+@st.cache_data(show_spinner=False)
+def process_dataframes(df_pick_raw, df_marm_raw, df_queue_raw, df_manual_raw):
+    """Zpracuje surová data jen jednou. Zrychluje celou aplikaci."""
+    df_pick = df_pick_raw.copy()
+    df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
+    df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key)
+    df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
+    df_pick['Source Storage Bin'] = df_pick.get('Source Storage Bin', df_pick.get('Storage Bin', ''))
+    
+    num_removed_admins = 0
+    if 'User' in df_pick.columns:
+        mask_admins = df_pick['User'].isin(['UIDJ5089', 'UIH25501'])
+        num_removed_admins = mask_admins.sum()
+        df_pick = df_pick[~mask_admins].copy()
+        
+    df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
+
+    queue_count_col = 'Delivery'
+    if df_queue_raw is not None:
+        if 'Transfer Order Number' in df_pick.columns and 'Transfer Order Number' in df_queue_raw.columns:
+            q_map = df_queue_raw.dropna(subset=['Transfer Order Number', 'Queue']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Queue'].to_dict()
+            df_pick['Queue'] = df_pick['Transfer Order Number'].map(q_map)
+            queue_count_col = 'Transfer Order Number'
+            for d_col in ['Confirmation Date', 'Creation Date']:
+                if d_col in df_queue_raw.columns:
+                    d_map = df_queue_raw.dropna(subset=['Transfer Order Number', d_col]).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')[d_col].to_dict()
+                    df_pick['Date'] = df_pick['Transfer Order Number'].map(d_map)
+                    break
+        elif 'SD Document' in df_queue_raw.columns:
+            q_map = df_queue_raw.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
+            df_pick['Queue'] = df_pick['Delivery'].map(q_map)
+            for d_col in ['Confirmation Date', 'Creation Date']:
+                if d_col in df_queue_raw.columns:
+                    d_map = df_queue_raw.dropna(subset=['SD Document', d_col]).drop_duplicates('SD Document').set_index('SD Document')[d_col].to_dict()
+                    df_pick['Date'] = df_pick['Delivery'].map(d_map)
+                    break
+        if 'Queue' in df_pick.columns:
+            df_pick = df_pick[df_pick['Queue'].astype(str).str.upper() != 'CLEARANCE'].copy()
+    else:
+        df_pick['Queue'], df_pick['Date'] = 'N/A', np.nan
+
+    manual_boxes = {}
+    if df_manual_raw is not None and not df_manual_raw.empty:
+        c_mat, c_pkg = df_manual_raw.columns[0], df_manual_raw.columns[1]
+        for _, row in df_manual_raw.iterrows():
+            if pd.isna(row[c_mat]) or str(row[c_mat]).upper() in ['NAN', 'NONE', '']: continue
+            mat_key = get_match_key(str(row[c_mat]))
+            pkg = str(row[c_pkg])
+            nums = re.findall(r'(\d+)\s*(?:ks|kus|pcs)|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice|karton|box)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
+            ext = sorted(list(set([int(g) for m in nums for g in m if g])), reverse=True)
+            if not ext and 'po kusech' in pkg.lower(): ext = [1]
+            if ext: manual_boxes[mat_key] = ext
+
+    box_dict, weight_dict, dim_dict = {}, {}, {}
+    if df_marm_raw is not None:
+        df_marm_raw['Match_Key'] = df_marm_raw['Material'].apply(get_match_key)
+        df_boxes = df_marm_raw[df_marm_raw['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])].copy()
+        df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
+        box_dict = df_boxes.groupby('Match_Key')['Numerator'].apply(lambda g: sorted([int(x) for x in g if x > 1], reverse=True)).to_dict()
+
+        df_st = df_marm_raw[df_marm_raw['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])].copy()
+        df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
+        df_st['Weight_KG'] = np.where(df_st['Unit of Weight'].astype(str).str.upper() == 'G', df_st['Gross Weight']/1000.0, df_st['Gross Weight'])
+        weight_dict = df_st.groupby('Match_Key')['Weight_KG'].first().to_dict()
+
+        def to_cm(val, unit):
+            try:
+                v, u = float(val), str(unit).upper().strip()
+                if u == 'MM': return v / 10.0
+                if u == 'M': return v * 100.0
+                return v 
+            except: return 0.0
+
+        for dim in ['Length', 'Width', 'Height']:
+            df_st[dim[0]] = df_st.apply(lambda r: to_cm(r[dim], r['Unit of Dimension']), axis=1)
+        dim_dict = df_st.set_index('Match_Key')[['L', 'W', 'H']].max(axis=1).to_dict()
+
+    df_pick['Box_Sizes_List'] = df_pick['Match_Key'].apply(lambda m: manual_boxes.get(m, box_dict.get(m, [])))
+    df_pick['Piece_Weight_KG'] = df_pick['Match_Key'].map(weight_dict).fillna(0.0)
+    df_pick['Piece_Max_Dim_CM'] = df_pick['Match_Key'].map(dim_dict).fillna(0.0)
+    
+    return df_pick, queue_count_col, num_removed_admins, manual_boxes, weight_dict, dim_dict, box_dict
+
+# Rychlý výpočet (1 ks volný = 1 pohyb natvrdo)
+def fast_compute_moves(qty_list, box_list):
     res_total, res_exact, res_miss = [], [], []
-    for qty, q, su, boxes, w, d in zip(qty_list, queue_list, su_list, box_list, w_list, d_list):
+    for qty, boxes in zip(qty_list, box_list):
         if qty <= 0:
-            res_total.append(0); res_exact.append(0); res_miss.append(0)
-            continue
-            
-        if str(q).upper() in ('PI_PL_FU', 'PI_PL_FUOE') and str(su).strip().upper() == 'X':
-            res_total.append(1); res_exact.append(1); res_miss.append(0)
-            continue
+            res_total.append(0); res_exact.append(0); res_miss.append(0); continue
             
         pb = pok = pmiss = 0
         zbytek = qty
         
+        # Plné krabice
         if boxes:
             for b in boxes:
                 if b > 1 and zbytek >= b:
@@ -263,12 +325,9 @@ def fast_compute_moves(qty_list, queue_list, su_list, box_list, w_list, d_list, 
                     pb += m
                     zbytek %= b
                     
+        # Volné kusy (vždy 1 ks = 1 pohyb)
         if zbytek > 0:
-            if w >= v_lim or d >= d_lim:
-                p = int(zbytek) 
-            else:
-                p = int(np.ceil(zbytek / h_lim))
-                
+            p = int(zbytek) 
             if not boxes:
                 pmiss += p  
             else:
@@ -281,7 +340,7 @@ def fast_compute_moves(qty_list, queue_list, su_list, box_list, w_list, d_list, 
     return res_total, res_exact, res_miss
 
 # ==========================================
-# 3. HLAVNÍ APLIKACE A SESSION STATE
+# 4. HLAVNÍ APLIKACE A UI
 # ==========================================
 def main():
     col_title, col_lang = st.columns([8, 1])
@@ -296,157 +355,29 @@ def main():
     st.divider()
 
     st.sidebar.header(t('sidebar_title'))
-    limit_vahy = st.sidebar.number_input(t('weight_label'), min_value=0.1, max_value=20.0, value=2.0, step=0.5)
-    limit_rozmeru = st.sidebar.number_input(t('dim_label'), min_value=1.0, max_value=200.0, value=15.0, step=1.0)
-    kusy_na_hmat = st.sidebar.slider(t('hmat_label'), min_value=1, max_value=20, value=1, step=1)
     
     with st.expander(t('upload_title'), expanded=True):
         st.markdown(f"**{t('upload_help')}**")
-        # Použití neměnného key a skrytého labelu zajistí, že se uploader při přepnutí jazyka nevymaže!
-        uploaded_files = st.file_uploader("UploadFiles", label_visibility="collapsed", type=['csv', 'xlsx'], accept_multiple_files=True, key="main_uploader")
+        uploaded_files = st.file_uploader("Files", label_visibility="collapsed", type=['csv', 'xlsx'], accept_multiple_files=True)
 
     if uploaded_files:
-        current_files_hash = "".join([f"{f.name}{f.size}" for f in uploaded_files])
+        df_pick_raw, df_marm_raw, df_manual_raw, df_queue_raw = None, None, None, None
         
-        # --- CACHING A PARSOVÁNÍ SOUBORŮ POUZE PŘI ZMĚNĚ SOUBORŮ ---
-        if st.session_state.get('last_files_hash') != current_files_hash:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            df_pick_raw, df_marm_raw, df_manual_raw, df_queue_raw = None, None, None, None
+        for file in uploaded_files:
+            fname = file.name.lower()
+            temp_df = pd.read_csv(file, dtype=str) if fname.endswith('.csv') else pd.read_excel(file, dtype=str)
+            if 'Delivery' in temp_df.columns and 'Act.qty (dest)' in temp_df.columns: df_pick_raw = temp_df
+            elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns: df_marm_raw = temp_df
+            elif 'Queue' in temp_df.columns and ('Transfer Order Number' in temp_df.columns or 'SD Document' in temp_df.columns): df_queue_raw = temp_df
+            elif len(temp_df.columns) >= 2: df_manual_raw = temp_df
 
-            status_text.markdown("**🔄 Načítání a čtení vstupních souborů...**")
-            progress_bar.progress(20)
+        if df_pick_raw is None:
+            st.error(t('err_pick'))
+            return
 
-            for file in uploaded_files:
-                fname = file.name.lower()
-                temp_df = pd.read_csv(file, dtype=str) if fname.endswith('.csv') else pd.read_excel(file, dtype=str)
-                
-                if 'Delivery' in temp_df.columns and 'Act.qty (dest)' in temp_df.columns:
-                    df_pick_raw = temp_df
-                elif 'Numerator' in temp_df.columns and 'Alternative Unit of Measure' in temp_df.columns:
-                    df_marm_raw = temp_df
-                elif 'Queue' in temp_df.columns and ('Transfer Order Number' in temp_df.columns or 'SD Document' in temp_df.columns):
-                    df_queue_raw = temp_df
-                elif len(temp_df.columns) >= 2:
-                    df_manual_raw = temp_df
-
-            if df_pick_raw is None:
-                st.error(t('err_pick'))
-                progress_bar.empty(); status_text.empty()
-                return
-
-            status_text.markdown("**⚙️ Zpracování Master Dat a systémových filtrů...**")
-            progress_bar.progress(50)
-            
-            df_pick = df_pick_raw.copy()
-            df_pick['Material'] = df_pick['Material'].astype(str).str.strip()
-            df_pick['Match_Key'] = df_pick['Material'].apply(get_match_key)
-            df_pick['Qty'] = pd.to_numeric(df_pick['Act.qty (dest)'], errors='coerce').fillna(0)
-            df_pick['Source Storage Bin'] = df_pick.get('Source Storage Bin', df_pick.get('Storage Bin', ''))
-            
-            num_removed_admins = 0
-            if 'User' in df_pick.columns:
-                mask_admins = df_pick['User'].isin(['UIDJ5089', 'UIH25501'])
-                num_removed_admins = mask_admins.sum()
-                df_pick = df_pick[~mask_admins].copy()
-                
-            df_pick = df_pick.dropna(subset=['Delivery', 'Material']).copy()
-
-            queue_count_col = 'Delivery'
-            if df_queue_raw is not None:
-                if 'Transfer Order Number' in df_pick.columns and 'Transfer Order Number' in df_queue_raw.columns:
-                    q_map = df_queue_raw.dropna(subset=['Transfer Order Number', 'Queue']).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')['Queue'].to_dict()
-                    df_pick['Queue'] = df_pick['Transfer Order Number'].map(q_map)
-                    queue_count_col = 'Transfer Order Number'
-                    
-                    for d_col in ['Confirmation Date', 'Creation Date']:
-                        if d_col in df_queue_raw.columns:
-                            d_map = df_queue_raw.dropna(subset=['Transfer Order Number', d_col]).drop_duplicates('Transfer Order Number').set_index('Transfer Order Number')[d_col].to_dict()
-                            df_pick['Date'] = df_pick['Transfer Order Number'].map(d_map)
-                            break
-                elif 'SD Document' in df_queue_raw.columns:
-                    q_map = df_queue_raw.dropna(subset=['SD Document', 'Queue']).drop_duplicates('SD Document').set_index('SD Document')['Queue'].to_dict()
-                    df_pick['Queue'] = df_pick['Delivery'].map(q_map)
-                    for d_col in ['Confirmation Date', 'Creation Date']:
-                        if d_col in df_queue_raw.columns:
-                            d_map = df_queue_raw.dropna(subset=['SD Document', d_col]).drop_duplicates('SD Document').set_index('SD Document')[d_col].to_dict()
-                            df_pick['Date'] = df_pick['Delivery'].map(d_map)
-                            break
-                            
-                if 'Queue' in df_pick.columns:
-                    df_pick = df_pick[df_pick['Queue'].astype(str).str.upper() != 'CLEARANCE'].copy()
-            else:
-                df_pick['Queue'], df_pick['Date'] = 'N/A', np.nan
-
-            df_pick['Removal of total SU'] = df_pick['Removal of total SU'].fillna('').astype(str).str.strip().str.upper()
-
-            manual_boxes = {}
-            if df_manual_raw is not None and not df_manual_raw.empty:
-                c_mat, c_pkg = df_manual_raw.columns[0], df_manual_raw.columns[1]
-                for _, row in df_manual_raw.iterrows():
-                    if pd.isna(row[c_mat]) or str(row[c_mat]).upper() in ['NAN', 'NONE', '']: continue
-                    mat_key = get_match_key(str(row[c_mat]))
-                    pkg = str(row[c_pkg])
-                    nums = re.findall(r'(\d+)\s*(?:ks|kus|pcs)|\bK-(\d+)\b|(?:pytl[íi]k|pytel|role|balen[íi]|krabice|karton|box)[^\d]*(\d+)', pkg, flags=re.IGNORECASE)
-                    ext = sorted(list(set([int(g) for m in nums for g in m if g])), reverse=True)
-                    if not ext and 'po kusech' in pkg.lower():
-                        ext = [1]
-                    if ext: manual_boxes[mat_key] = ext
-
-            box_dict, weight_dict, dim_dict = {}, {}, {}
-            if df_marm_raw is not None:
-                df_marm_raw['Match_Key'] = df_marm_raw['Material'].apply(get_match_key)
-                df_boxes = df_marm_raw[df_marm_raw['Alternative Unit of Measure'].isin(['AEK', 'KAR', 'KART', 'PAK', 'VPE', 'CAR', 'BLO'])].copy()
-                df_boxes['Numerator'] = pd.to_numeric(df_boxes['Numerator'], errors='coerce').fillna(0)
-                box_dict = df_boxes.groupby('Match_Key')['Numerator'].apply(lambda g: sorted([int(x) for x in g if x > 1], reverse=True)).to_dict()
-
-                df_st = df_marm_raw[df_marm_raw['Alternative Unit of Measure'].isin(['ST', 'PCE', 'KS'])].copy()
-                df_st['Gross Weight'] = pd.to_numeric(df_st['Gross Weight'], errors='coerce').fillna(0)
-                df_st['Weight_KG'] = np.where(df_st['Unit of Weight'].astype(str).str.upper() == 'G', df_st['Gross Weight']/1000.0, df_st['Gross Weight'])
-                weight_dict = df_st.groupby('Match_Key')['Weight_KG'].first().to_dict()
-
-                def to_cm(val, unit):
-                    try:
-                        v, u = float(val), str(unit).upper().strip()
-                        if u == 'MM': return v / 10.0
-                        if u == 'M': return v * 100.0
-                        return v 
-                    except: return 0.0
-
-                for dim in ['Length', 'Width', 'Height']:
-                    df_st[dim[0]] = df_st.apply(lambda r: to_cm(r[dim], r['Unit of Dimension']), axis=1)
-                dim_dict = df_st.set_index('Match_Key')[['L', 'W', 'H']].max(axis=1).to_dict()
-
-            df_pick['Box_Sizes_List'] = df_pick['Match_Key'].apply(lambda m: manual_boxes.get(m, box_dict.get(m, [])))
-            df_pick['Piece_Weight_KG'] = df_pick['Match_Key'].map(weight_dict).fillna(0.0)
-            df_pick['Piece_Max_Dim_CM'] = df_pick['Match_Key'].map(dim_dict).fillna(0.0)
-
-            # Uložení do session_state
-            st.session_state['last_files_hash'] = current_files_hash
-            st.session_state['df_pick_prep'] = df_pick
-            st.session_state['queue_count_col'] = queue_count_col
-            st.session_state['num_removed_admins'] = num_removed_admins
-            st.session_state['manual_boxes'] = manual_boxes
-            st.session_state['weight_dict'] = weight_dict
-            st.session_state['dim_dict'] = dim_dict
-            st.session_state['box_dict'] = box_dict
-            st.session_state['df_marm'] = df_marm_raw
-            
-            progress_bar.progress(100)
-            time.sleep(0.3)
-            progress_bar.empty()
-            status_text.empty()
-
-        # --- BLESKOVÉ NAČTENÍ Z CACHE A PŘEPOČET ---
-        df_pick = st.session_state['df_pick_prep'].copy()
-        queue_count_col = st.session_state['queue_count_col']
-        num_removed_admins = st.session_state['num_removed_admins']
-        manual_boxes = st.session_state['manual_boxes']
-        weight_dict = st.session_state['weight_dict']
-        dim_dict = st.session_state['dim_dict']
-        box_dict = st.session_state['box_dict']
-        df_marm = st.session_state['df_marm']
+        # Okamžité zpracování díky cachování
+        df_pick_base, queue_count_col, num_removed_admins, manual_boxes, weight_dict, dim_dict, box_dict = process_dataframes(df_pick_raw, df_marm_raw, df_queue_raw, df_manual_raw)
+        df_pick = df_pick_base.copy()
 
         df_pick['Month'] = pd.to_datetime(df_pick.get('Date', np.nan), errors='coerce').dt.to_period('M').astype(str).replace('NaT', t('unknown'))
 
@@ -454,26 +385,20 @@ def main():
         if excluded_materials:
             df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
-        # Výpočet se spouští instantně pro každou změnu posuvníků
-        t_total, t_exact, t_miss = fast_compute_moves(
-            qty_list=df_pick['Qty'].values, queue_list=df_pick['Queue'].values, su_list=df_pick['Removal of total SU'].values,
-            box_list=df_pick['Box_Sizes_List'].values, w_list=df_pick['Piece_Weight_KG'].values, d_list=df_pick['Piece_Max_Dim_CM'].values,
-            v_lim=limit_vahy, d_lim=limit_rozmeru, h_lim=kusy_na_hmat
-        )
+        # Okamžitý výpočet ergonomie
+        t_total, t_exact, t_miss = fast_compute_moves(df_pick['Qty'].values, df_pick['Box_Sizes_List'].values)
         
         df_pick['Pohyby_Rukou'] = t_total
         df_pick['Pohyby_Exact'] = t_exact
         df_pick['Pohyby_Loose_Miss'] = t_miss
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        c_i1, c_i2, c_i3 = st.columns(3)
+        c_i1, c_i2 = st.columns(2)
         if num_removed_admins > 0: c_i1.info(t('info_users').format(num_removed_admins))
-        x_c = ((df_pick['Removal of total SU'] == 'X') & (df_pick['Queue'].str.contains('FU', na=False))).sum()
-        if x_c > 0: c_i2.warning(t('info_clean').format(x_c))
-        if manual_boxes: c_i3.success(t('info_manual').format(len(manual_boxes)))
+        if manual_boxes: c_i2.success(t('info_manual').format(len(manual_boxes)))
 
         # ==========================================
-        # 4. ZOBRAZENÍ TABŮ
+        # 5. ZOBRAZENÍ TABŮ
         # ==========================================
         tab_dash, tab_pallets, tab_top, tab_audit = st.tabs([t('tab_dashboard'), t('tab_pallets'), t('tab_top'), t('tab_audit')])
 
@@ -511,8 +436,7 @@ def main():
                     ).reset_index()
                     
                     def adjust_queue_name(row):
-                        if str(row['Queue']).upper() in ['PI_PL', 'PI_PL_OE']:
-                            return row['Queue'] + (' (Single)' if row['num_materials'] == 1 else ' (Mix)')
+                        if str(row['Queue']).upper() in ['PI_PL', 'PI_PL_OE']: return row['Queue'] + (' (Single)' if row['num_materials'] == 1 else ' (Mix)')
                         return row['Queue']
 
                     totals_rows = queue_agg_raw[queue_agg_raw['Queue'].str.upper().isin(['PI_PL', 'PI_PL_OE'])].copy()
@@ -522,9 +446,8 @@ def main():
                     
                     q_sum = queue_agg_final.groupby('Queue').agg(
                         pocet_zakazek=('delivery', 'nunique'), prum_lokaci=('pocet_lokaci', 'mean'),
-                        prum_kusu=('total_qty', 'mean'), prum_pohybu=('celkem_pohybu', 'mean'),
-                        lokaci_sum=('pocet_lokaci', 'sum'), pohybu_sum=('celkem_pohybu', 'sum'),
-                        exact_sum=('pohyby_exact', 'sum'), miss_sum=('pohyby_miss', 'sum')
+                        prum_kusu=('total_qty', 'mean'), lokaci_sum=('pocet_lokaci', 'sum'), 
+                        pohybu_sum=('celkem_pohybu', 'sum'), exact_sum=('pohyby_exact', 'sum'), miss_sum=('pohyby_miss', 'sum')
                     )
                     
                     q_sum['pocet_TO'] = queue_agg_final.groupby('Queue')[queue_count_col].nunique() if queue_count_col == 'Transfer Order Number' else q_sum['pocet_zakazek']
@@ -532,7 +455,6 @@ def main():
                     q_sum['prum_pohybu_lokace'] = np.where(q_sum['lokaci_sum'] > 0, q_sum['pohybu_sum'] / q_sum['lokaci_sum'], 0)
                     q_sum['prum_exact_lokace'] = np.where(q_sum['lokaci_sum'] > 0, q_sum['exact_sum'] / q_sum['lokaci_sum'], 0)
                     q_sum['prum_miss_lokace'] = np.where(q_sum['lokaci_sum'] > 0, q_sum['miss_sum'] / q_sum['lokaci_sum'], 0)
-                    
                     q_sum['pct_exact'] = np.where(q_sum['pohybu_sum'] > 0, (q_sum['exact_sum'] / q_sum['pohybu_sum']) * 100, 0)
                     q_sum['pct_miss'] = np.where(q_sum['pohybu_sum'] > 0, (q_sum['miss_sum'] / q_sum['pohybu_sum']) * 100, 0)
                     
@@ -545,9 +467,9 @@ def main():
                     display_q.columns = [t('q_col_queue'), t('q_col_desc'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), 
                                          t('q_col_mov_loc'), t('q_col_exact_loc'), t('q_pct_exact'), t('q_col_miss_loc'), t('q_pct_miss')]
                     
-                    # Zvýraznění (Styler) pro klíčové sloupce
+                    # Vizuální zvýraznění (Tučně a modré pozadí)
                     styled_q = display_q.style.format({c: "{:.1f}" for c in display_q.columns if 'Prům' in c or 'Avg' in c or 'Pohyb' in c or 'Loc' in c} | {c: "{:.1f} %" for c in display_q.columns if '%' in c})\
-                        .set_properties(subset=[t('q_col_queue'), t('q_col_mov_loc')], **{'font-weight': 'bold', 'color': '#1f77b4', 'background-color': 'rgba(31, 119, 180, 0.05)'})
+                        .set_properties(subset=[t('q_col_queue'), t('q_col_mov_loc')], **{'font-weight': 'bold', 'color': '#0d47a1', 'background-color': '#e3f2fd'})
                     
                     col_qt1, col_qt2 = st.columns([2.5, 1])
                     with col_qt1:
@@ -560,21 +482,16 @@ def main():
             st.subheader(t('sec1_title'))
             st.markdown(t('pallets_clean_info'))
             
-            # STRIKTNÍ FILTRACE - pouze Mix Pallets
             allowed_q = ['PI_PL (Mix)', 'PI_PL (Total)', 'PI_PL (Single)', 'PI_PL_OE (Mix)', 'PI_PL_OE (Total)', 'PI_PL_OE (Single)']
             df_pallets_clean = df_pick[df_pick['Queue'].astype(str).str.upper().isin(['PI_PL', 'PI_PL_OE'])].copy()
             
             if not df_pallets_clean.empty:
                 grouped_orders = df_pallets_clean.groupby('Delivery').agg(
-                    num_materials=('Material', 'nunique'), 
-                    material=('Material', 'first'),
+                    num_materials=('Material', 'nunique'), material=('Material', 'first'),
                     certs=('Certificate Number', lambda x: ", ".join(x.dropna().unique().astype(str))) if 'Certificate Number' in df_pallets_clean.columns else ('Material', lambda x: ""),
-                    total_qty=('Qty', 'sum'), 
-                    num_positions=('Source Storage Bin', 'nunique'),
-                    celkem_pohybu=('Pohyby_Rukou', 'sum'), 
-                    pohyby_exact=('Pohyby_Exact', 'sum'), 
-                    pohyby_miss=('Pohyby_Loose_Miss', 'sum'),
-                    vaha_zakazky=('Celkova_Vaha_KG', 'sum'), 
+                    total_qty=('Qty', 'sum'), num_positions=('Source Storage Bin', 'nunique'),
+                    celkem_pohybu=('Pohyby_Rukou', 'sum'), pohyby_exact=('Pohyby_Exact', 'sum'), 
+                    pohyby_miss=('Pohyby_Loose_Miss', 'sum'), vaha_zakazky=('Celkova_Vaha_KG', 'sum'), 
                     max_rozmer=('Piece_Max_Dim_CM', 'first')
                 )
                 
@@ -615,12 +532,9 @@ def main():
 
             if not df_top_filter.empty:
                 agg = df_top_filter.groupby('Material').agg(
-                    pocet_picku=('Material', 'count'), 
-                    celkove_mnozstvi=('Qty', 'sum'),
-                    celkem_pohybu=('Pohyby_Rukou', 'sum'), 
-                    pohyby_exact=('Pohyby_Exact', 'sum'),
-                    pohyby_miss=('Pohyby_Loose_Miss', 'sum'),
-                    celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum')
+                    pocet_picku=('Material', 'count'), celkove_mnozstvi=('Qty', 'sum'),
+                    celkem_pohybu=('Pohyby_Rukou', 'sum'), pohyby_exact=('Pohyby_Exact', 'sum'),
+                    pohyby_miss=('Pohyby_Loose_Miss', 'sum'), celkova_natacena_vaha=('Celkova_Vaha_KG', 'sum')
                 ).reset_index()
 
                 agg.rename(columns={
@@ -678,34 +592,20 @@ def main():
                                     mat = row['Material']
                                     qty = row['Qty']
                                     boxes = row.get('Box_Sizes_List', [])
-                                    w = row.get('Piece_Weight_KG', 0)
-                                    d = row.get('Piece_Max_Dim_CM', 0)
-                                    su = row.get('Removal of total SU', '')
                                     src_bin = row.get('Source Storage Bin', 'Unknown')
-                                    queue_str = str(row.get('Queue', '')).upper()
                                     
-                                    st.markdown(f"**Mat:** `{mat}` | **Bin:** `{src_bin}` | **Qty:** {qty} | **Wgt:** {w:.3f} kg | **Dim:** {d:.1f} cm")
+                                    st.markdown(f"**Mat:** `{mat}` | **Bin:** `{src_bin}` | **Qty:** {qty}")
                                     
-                                    if su == 'X' and queue_str in ['PI_PL_FU', 'PI_PL_FUOE']:
-                                        st.info(f"➡️ Full unit (X) in {queue_str}. -> **1 move.**" if st.session_state.lang == 'en' else f"➡️ Celá paleta (X) ve frontě {queue_str}. -> **1 pohyb.**")
-                                    else:
-                                        if su == 'X':
-                                            st.caption(f"*(Ignored 'X' marker because queue {queue_str} is not Full Pallet...)*" if st.session_state.lang == 'en' else f"*(Značka 'X' ignorována, fronta {queue_str} nevozí celé palety)*")
-                                        
-                                        zbytek = qty
-                                        if boxes:
-                                            for b in boxes:
-                                                if b > 1 and zbytek >= b:
-                                                    m = zbytek // b
-                                                    st.write(f"➡️ **{int(m)}x Box** (per {b} pcs)" if st.session_state.lang == 'en' else f"➡️ Odebráno **{int(m)}x Krabice** (po {b} ks)")
-                                                    zbytek %= b
-                                                    
-                                        if zbytek > 0:
-                                            if w >= limit_vahy or d >= limit_rozmeru:
-                                                st.warning(f"➡️ Remaining {zbytek} pcs over limit -> **{zbytek} moves**." if st.session_state.lang == 'en' else f"➡️ Zbylých {zbytek} ks překračuje limit -> **{zbytek} pohybů**.")
-                                            else:
-                                                hmaty = int(np.ceil(zbytek / kusy_na_hmat))
-                                                st.success(f"➡️ Remaining {zbytek} pcs grabbed -> **{hmaty} moves**." if st.session_state.lang == 'en' else f"➡️ Zbylých {zbytek} ks do hrsti -> **{hmaty} pohybů**.")
+                                    zbytek = qty
+                                    if boxes:
+                                        for b in boxes:
+                                            if b > 1 and zbytek >= b:
+                                                m = zbytek // b
+                                                st.write(f"➡️ **{int(m)}x Box** (per {b} pcs)" if st.session_state.lang == 'en' else f"➡️ **{int(m)}x Krabice** (po {b} ks)")
+                                                zbytek %= b
+                                                
+                                    if zbytek > 0:
+                                        st.write(f"➡️ **{int(zbytek)}x Loose piece**" if st.session_state.lang == 'en' else f"➡️ **{int(zbytek)}x Volný kus**")
                                     
                                     st.markdown(f"> **{t('audit_phys_moves')}: `{row.get('Pohyby_Rukou', 0)}`**")
                                     st.write("---")
@@ -719,25 +619,17 @@ def main():
                     if search_key in manual_boxes:
                         st.success(f"✅ Master Data Override: **{manual_boxes[search_key]} pcs**.")
                     else:
-                        st.info("ℹ️ No override found." if st.session_state.lang == 'en' else "ℹ️ Žádné ruční ověření.")
+                        st.info("ℹ️ No manual override." if st.session_state.lang == 'en' else "ℹ️ Žádné ruční ověření balení.")
                     
                     c_info1, c_info2 = st.columns(2)
                     c_info1.metric("Weight / Váha (MARM)", f"{weight_dict.get(search_key, 0):.3f} kg")
                     c_info2.metric("Max Dim / Rozměr (MARM)", f"{dim_dict.get(search_key, 0):.1f} cm")
 
-            # ------------------------------------------
             # EXPORT DO EXCELU
-            # ------------------------------------------
             st.divider()
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                pd.DataFrame({
-                    "Parameter": ["Weight Limit", "Dim Limit", "Grab limit", "Admins Excluded"], 
-                    "Value": [f"{limit_vahy} kg", f"{limit_rozmeru} cm", f"{kusy_na_hmat} pcs", num_removed_admins]
-                }).to_excel(writer, index=False, sheet_name='Settings')
-                
-                if 'display_q' in locals():
-                    display_q.to_excel(writer, index=False, sheet_name='Queue_Analysis')
+                if 'display_q' in locals(): display_q.to_excel(writer, index=False, sheet_name='Queue_Analysis')
                     
                 if 'filtered_orders' in locals() and not filtered_orders.empty:
                     ex_df = filtered_orders[['material', 'total_qty', 'celkem_pohybu', 'pohyby_exact', 'pohyby_miss', 'vaha_zakazky', 'max_rozmer', 'certs']].copy()
