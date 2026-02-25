@@ -52,7 +52,7 @@ QUEUE_DESC = {
     'PI_PL (Mix)': 'Mix Pal',
     'PI_PL (Total)': 'Single SKU Pal + Mix Pal',
     'PI_PL (Single)': 'Single SKU Pal',
-    'PI_PL_OE (Mix)': 'Mix Pallet OE',
+    'PI_PL_OE (Mix)': 'OE Mix Pal',
     'PI_PA_OE': 'OE Parcel',
     'PI_PL_OE (Total)': 'OE Single SKU Pal + Mix Pal',
     'PI_PL_OE (Single)': 'OE Single SKU Pal',
