@@ -135,7 +135,7 @@ Pokud v SAPu chybí u materiálu jakákoliv data o balení a není nahráno ani 
         'col_cert': "Certifikát",
         'audit_title': "🎲 Detailní Auditní Report (Náhodné vzorky)",
         'audit_phys_moves': "Fyzických pohybů",
-        'audit_gen_btn': "Vygenerovat náhodný Audit (5 úkolů z každé fronty)",
+        'audit_gen_btn': "🔄 Vygenerovat nové vzorky",
         'sec3_title': "🔍 Prohlížeč Master Dat",
         'search_label': "Zkontrolujte si konkrétní materiál:",
         'tab_dashboard': "📊 Dashboard & Queue",
@@ -154,7 +154,8 @@ Pokud v SAPu chybí u materiálu jakákoliv data o balení a není nahráno ani 
         'ovr_found': "✅ Ruční ověření: **{} ks**.",
         'ovr_not_found': "ℹ️ Žádné ruční ověření.",
         'marm_weight': "Váha (MARM)",
-        'marm_dim': "Rozměr (MARM)"
+        'marm_dim': "Rozměr (MARM)",
+        'box_missing': "Chybí"
     },
     'en': {
         'switch_lang': "🇨🇿 Přepnout do češtiny",
@@ -228,7 +229,7 @@ If SAP lacks packaging data for a material and no manual override is uploaded, t
         'col_cert': "Certificate",
         'audit_title': "🎲 Detailed Logic Audit (Random samples)",
         'audit_phys_moves': "Physical moves",
-        'audit_gen_btn': "Generate Audit Report (5 TOs per Queue)",
+        'audit_gen_btn': "🔄 Generate New Samples",
         'sec3_title': "🔍 Master Data Viewer",
         'search_label': "Check specific material data:",
         'tab_dashboard': "📊 Dashboard & Queue",
@@ -247,7 +248,8 @@ If SAP lacks packaging data for a material and no manual override is uploaded, t
         'ovr_found': "✅ Master Data Override: **{} pcs**.",
         'ovr_not_found': "ℹ️ No override found.",
         'marm_weight': "Weight (MARM)",
-        'marm_dim': "Max Dim (MARM)"
+        'marm_dim': "Max Dim (MARM)",
+        'box_missing': "Missing"
     }
 }
 
@@ -320,13 +322,12 @@ def main():
     
     with st.expander(t('upload_title'), expanded=True):
         st.markdown(f"**{t('upload_help')}**")
-        # File uploader s pevným klíčem - zabrání vymazání při přepnutí jazyka
         uploaded_files = st.file_uploader("UploadFiles", label_visibility="collapsed", type=['csv', 'xlsx'], accept_multiple_files=True, key="main_uploader")
 
     if uploaded_files:
         current_files_hash = "".join([f"{f.name}{f.size}" for f in uploaded_files])
         
-        # --- CACHING A PARSOVÁNÍ SOUBORŮ (ZPRACOVÁVÁ SE JEN JEDNOU) ---
+        # --- CACHING A PARSOVÁNÍ SOUBORŮ ---
         if st.session_state.get('last_files_hash') != current_files_hash:
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -441,7 +442,6 @@ def main():
             df_pick['Piece_Weight_KG'] = df_pick['Match_Key'].map(weight_dict).fillna(0.0)
             df_pick['Piece_Max_Dim_CM'] = df_pick['Match_Key'].map(dim_dict).fillna(0.0)
 
-            # --- ULOŽENÍ VÝSLEDKŮ PARSOVÁNÍ DO PAMĚTI ---
             st.session_state['last_files_hash'] = current_files_hash
             st.session_state['df_pick_prep'] = df_pick
             st.session_state['queue_count_col'] = queue_count_col
@@ -457,18 +457,14 @@ def main():
             status_text.empty()
 
     else:
-        # Vyčištění paměti pokud uživatel smaže soubory křížkem
-        if 'last_files_hash' in st.session_state:
-            del st.session_state['last_files_hash']
-        if 'df_pick_prep' in st.session_state:
-            del st.session_state['df_pick_prep']
+        if 'last_files_hash' in st.session_state: del st.session_state['last_files_hash']
+        if 'df_pick_prep' in st.session_state: del st.session_state['df_pick_prep']
 
     # ==========================================
-    # --- JÁDRO: VÝPOČTY SE PROVEDOU VŽDY POKUD JSOU DATA ---
+    # --- VÝPOČTY (PROVÁDÍ SE VŽDY PRO ÚPRAVU POSUVNÍKŮ) ---
     # ==========================================
     if 'df_pick_prep' in st.session_state and st.session_state['df_pick_prep'] is not None:
         
-        # Načtení dat z paměti
         df_pick = st.session_state['df_pick_prep'].copy()
         queue_count_col = st.session_state['queue_count_col']
         num_removed_admins = st.session_state['num_removed_admins']
@@ -483,7 +479,6 @@ def main():
         if excluded_materials:
             df_pick = df_pick[~df_pick['Material'].isin(excluded_materials)]
 
-        # --- BLESKOVÝ VÝPOČET REAGUJÍCÍ NA POSUVNÍKY ---
         t_total, t_exact, t_miss = fast_compute_moves(
             qty_list=df_pick['Qty'].values, queue_list=df_pick['Queue'].values, su_list=df_pick['Removal of total SU'].values,
             box_list=df_pick['Box_Sizes_List'].values, w_list=df_pick['Piece_Weight_KG'].values, d_list=df_pick['Piece_Max_Dim_CM'].values,
@@ -495,16 +490,12 @@ def main():
         df_pick['Pohyby_Loose_Miss'] = t_miss
         df_pick['Celkova_Vaha_KG'] = df_pick['Qty'] * df_pick['Piece_Weight_KG']
 
-        # Informační blok
         c_i1, c_i2, c_i3 = st.columns(3)
         if num_removed_admins > 0: c_i1.info(t('info_users').format(num_removed_admins))
         x_c = ((df_pick['Removal of total SU'] == 'X') & (df_pick['Queue'].str.contains('FU', na=False))).sum()
         if x_c > 0: c_i2.warning(t('info_clean').format(x_c))
         if manual_boxes: c_i3.success(t('info_manual').format(len(manual_boxes)))
 
-        # ==========================================
-        # 4. ZOBRAZENÍ TABŮ
-        # ==========================================
         tab_dash, tab_pallets, tab_top, tab_audit = st.tabs([t('tab_dashboard'), t('tab_pallets'), t('tab_top'), t('tab_audit')])
 
         # --- TAB 1: DASHBOARD ---
@@ -575,7 +566,6 @@ def main():
                     display_q.columns = [t('q_col_queue'), t('q_col_desc'), t('q_col_to'), t('q_col_orders'), t('q_col_loc'), t('q_col_pcs'), 
                                          t('q_col_mov_loc'), t('q_col_exact_loc'), t('q_pct_exact'), t('q_col_miss_loc'), t('q_pct_miss')]
                     
-                    # Zvýraznění dvou klíčových sloupců pro klienta
                     styled_q = display_q.style.format({c: "{:.1f}" for c in display_q.columns if 'Prům' in c or 'Avg' in c or 'Pohyb' in c or 'Loc' in c} | {c: "{:.1f} %" for c in display_q.columns if '%' in c})\
                         .set_properties(subset=[t('q_col_queue'), t('q_col_mov_loc')], **{'font-weight': 'bold', 'color': '#1f77b4', 'background-color': 'rgba(31, 119, 180, 0.05)'})
                     
@@ -590,7 +580,6 @@ def main():
             st.subheader(t('sec1_title'))
             st.markdown(t('pallets_clean_info'))
             
-            # STRIKTNÍ FILTRACE - pouze Mix Pallets
             allowed_q = ['PI_PL (Mix)', 'PI_PL (Total)', 'PI_PL (Single)', 'PI_PL_OE (Mix)', 'PI_PL_OE (Total)', 'PI_PL_OE (Single)']
             df_pallets_clean = df_pick[df_pick['Queue'].astype(str).str.upper().isin(['PI_PL', 'PI_PL_OE'])].copy()
             
@@ -685,17 +674,27 @@ def main():
             with col_au1:
                 st.subheader(t('audit_title'))
                 
+                # Automatické vytvoření auditu, pokud neexistuje nebo je z minula
+                if 'audit_samples' not in st.session_state or st.session_state.get('last_audit_hash') != current_files_hash:
+                    audit_samples = {}
+                    valid_queues = sorted([q for q in df_pick['Queue'].dropna().unique() if q != 'N/A'])
+                    for q in valid_queues:
+                        q_data = df_pick[df_pick['Queue'] == q]
+                        unique_tos = q_data[queue_count_col].dropna().unique()
+                        if len(unique_tos) > 0:
+                            audit_samples[q] = np.random.choice(unique_tos, min(5, len(unique_tos)), replace=False)
+                    st.session_state['audit_samples'] = audit_samples
+                    st.session_state['last_audit_hash'] = current_files_hash
+                
                 if st.button(t('audit_gen_btn'), type="primary"):
-                    if len(df_pick) > 0:
-                        audit_samples = {}
-                        valid_queues = sorted([q for q in df_pick['Queue'].dropna().unique() if q != 'N/A'])
-                        
-                        for q in valid_queues:
-                            q_data = df_pick[df_pick['Queue'] == q]
-                            unique_tos = q_data[queue_count_col].dropna().unique()
-                            if len(unique_tos) > 0:
-                                audit_samples[q] = np.random.choice(unique_tos, min(5, len(unique_tos)), replace=False)
-                        st.session_state['audit_samples'] = audit_samples
+                    audit_samples = {}
+                    valid_queues = sorted([q for q in df_pick['Queue'].dropna().unique() if q != 'N/A'])
+                    for q in valid_queues:
+                        q_data = df_pick[df_pick['Queue'] == q]
+                        unique_tos = q_data[queue_count_col].dropna().unique()
+                        if len(unique_tos) > 0:
+                            audit_samples[q] = np.random.choice(unique_tos, min(5, len(unique_tos)), replace=False)
+                    st.session_state['audit_samples'] = audit_samples
 
                 if 'audit_samples' in st.session_state:
                     for q, tos in st.session_state['audit_samples'].items():
@@ -714,7 +713,8 @@ def main():
                                     src_bin = row.get('Source Storage Bin', 'Unknown')
                                     queue_str = str(row.get('Queue', '')).upper()
                                     
-                                    st.markdown(f"**Mat:** `{mat}` | **Bin:** `{src_bin}` | **Qty:** {qty} | **Wgt:** {w:.3f} kg | **Dim:** {d:.1f} cm")
+                                    boxes_str = str(boxes) if boxes else f"*{t('box_missing')}*"
+                                    st.markdown(f"**Mat:** `{mat}` | **Bin:** `{src_bin}` | **Qty:** {qty} | **Box:** {boxes_str} | **Wgt:** {w:.3f} kg | **Dim:** {d:.1f} cm")
                                     
                                     if su == 'X' and queue_str in ['PI_PL_FU', 'PI_PL_FUOE']:
                                         st.info(t('audit_su_x').format(queue_str))
